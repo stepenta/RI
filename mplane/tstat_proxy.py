@@ -79,7 +79,6 @@ class tStatService(mplane.scheduler.Service):
                         newlines.append(line)
                 else:
                     if (cap_label == "tstat-log_tcp_complete-end_to_end" and param_name == 'tcplog_end_to_end'):
-                        print('AAA')
                         newlines.append(line.replace('1', '0'))
 
                     elif (cap_label == "tstat-log_tcp_complete-tcp_options" and param_name == 'tcplog_options'):

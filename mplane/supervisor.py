@@ -21,6 +21,7 @@
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
+from threading import Thread
 import mplane.model
 import mplane.utils
 import mplane.httpsrv
@@ -31,17 +32,78 @@ import html.parser
 import urllib3
 from urllib3 import HTTPSConnectionPool
 from urllib3 import HTTPConnectionPool
+import tornado.web
+import tornado.httpserver
 import os.path
 import argparse
-
 from datetime import datetime, timedelta
+DEFAULT_LISTEN_PORT = 8888
+DEFAULT_LISTEN_IP4 = '127.0.0.1'
 
-CAPABILITY_PATH_ELEM = "capability"
+REGISTRATION_PATH = "registration"
+SPECIFICATION_PATH = "specification"
+RESULT_PATH = "result"
 
 """
-Generic mPlane client for HTTP component-push workflows.
+Generic mPlane supervisor for cap-push, spec-pull workflows.
+Actually it is an HTTP server
 
 """
+
+def print_then_prompt(line):
+    print(line)
+    print('|mplane| ', end="", flush = True)
+    
+class MPlaneHandler(tornado.web.RequestHandler):
+    """
+    Abstract tornado RequestHandler that allows a 
+    handler to respond with an mPlane Message.
+
+    """
+    def _respond_message(self, msg):
+        self.set_status(200)
+        self.set_header("Content-Type", "application/x-mplane+json")
+        self.write(mplane.model.unparse_json(msg))
+        self.finish()
+                
+class RegistrationHandler(MPlaneHandler):
+    """
+    Handles the probes that want to register to this supervisor
+    The registration consists in the whole set of capabilities
+
+    """
+    def initialize(self):
+        pass
+
+    def post(self):
+        print_then_prompt("Capability Push OK!")
+        pass
+        
+class SpecificationHandler(MPlaneHandler):
+    """
+    Exposes the specifications, that will be periodically pulled by the
+    probes
+
+    """
+    def initialize(self):
+        pass
+
+    def get(self):
+        print_then_prompt("Specification Pull OK!")
+        pass
+        
+class ResultHandler(MPlaneHandler):
+    """
+    Receives results of specifications, when available 
+
+    """
+
+    def initialize(self):
+        pass
+
+    def post(self):
+        print_then_prompt("Result Push OK!")
+        pass
 
 class CrawlParser(html.parser.HTMLParser):
     """
@@ -235,32 +297,16 @@ class HttpClient(object):
 
     def _handle_exception(self, exc):
         print(repr(exc))
-
-
-class SshClient(object):
-    """ Skeleton for SSH Client"""
     
-    def __init__(self, security, posturl, capurl=None):
-        pass
-
 class ClientShell(cmd.Cmd):
 
-    intro = 'Welcome to the mplane client shell.   Type help or ? to list commands.\n'
+    intro = 'Welcome to the mPlane Supervisor shell.   Type help or ? to list commands.\n'
     prompt = '|mplane| '
 
     def preloop(self):
-        global args
-        parse_args()
-        self._certfile = args.CERTFILE
-        self._service_address = args.SERVICE_ADDRESS
-        self._service_port = args.SERVICE_PORT
         self._client = None
         self._defaults = {}
         self._when = None
-
-        if self._certfile:
-            mplane.utils.check_file(self._certfile)
-
 
     def do_connect(self, arg):
         """Connect to a probe or supervisor and retrieve capabilities"""
@@ -446,9 +492,9 @@ def parse_args():
     global args
     parser = argparse.ArgumentParser(description="run mPlane client")
 
-    parser.add_argument('-p', '--service-port', metavar='port', dest='SERVICE_PORT', default=mplane.httpsrv.DEFAULT_LISTEN_PORT, type=int, \
+    parser.add_argument('-p', '--listen-port', metavar='port', dest='LISTEN_PORT', default=mplane.httpsrv.DEFAULT_LISTEN_PORT, type=int, \
                         help = 'run the service on the specified port [default=%d]' % mplane.httpsrv.DEFAULT_LISTEN_PORT)
-    parser.add_argument('-H', '--service-ipaddr', metavar='ip', dest='SERVICE_ADDRESS', default=mplane.httpsrv.DEFAULT_LISTEN_IP4, \
+    parser.add_argument('-H', '--listen-ipaddr', metavar='ip', dest='LISTEN_IP4', default=mplane.httpsrv.DEFAULT_LISTEN_IP4, \
                         help = 'run the service on the specified IP address [default=%s]' % mplane.httpsrv.DEFAULT_LISTEN_IP4)
 
     parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
@@ -463,7 +509,29 @@ def parse_args():
         sys.exit(1)
         #raise ValueError("Need --logdir and --fileconf as parameters")
 
+def listen_in_background():
+    tornado.ioloop.IOLoop.instance().start()
     
 if __name__ == "__main__":
     mplane.model.initialize_registry()
+    parse_args()
+            
+    application = tornado.web.Application([
+            (r"/" + REGISTRATION_PATH, RegistrationHandler),
+            (r"/" + SPECIFICATION_PATH, SpecificationHandler),
+            (r"/" + RESULT_PATH, ResultHandler),
+        ])
+    if args.DISABLE_SEC == False:
+        cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
+        key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
+        ca = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "ca-chain"))
+        mplane.utils.check_file(cert)
+        mplane.utils.check_file(key)
+        mplane.utils.check_file(ca)
+        http_server = tornado.httpserver.HTTPServer(application, ssl_options=dict(certfile=cert, keyfile=key, cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca))
+    else:
+        http_server = tornado.httpserver.HTTPServer(application)
+    http_server.listen(args.LISTEN_PORT, args.LISTEN_IP4)
+    t = Thread(target=listen_in_background)
+    t.start()
     ClientShell().cmdloop()
