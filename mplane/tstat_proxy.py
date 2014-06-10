@@ -24,14 +24,23 @@ the mPlane reference implementation.
 
 """
 
+import threading
 from datetime import datetime
 from time import sleep
 import mplane.model
 import mplane.scheduler
 import mplane.httpsrv
 import mplane.tstat_caps
+from urllib3 import HTTPSConnectionPool
+from urllib3 import HTTPConnectionPool
 import argparse
 import sys
+
+SUPERVISOR_IP4 = '127.0.0.1'
+SUPERVISOR_PORT = 8888
+REGISTRATION_PATH = "registration"
+SPECIFICATION_PATH = "specification"
+RESULT_PATH = "result"
 
 class tStatService(mplane.scheduler.Service):
     def __init__(self, cap, fileconf):
@@ -129,26 +138,10 @@ class tStatService(mplane.scheduler.Service):
         res = self.fill_res(spec, start_time, end_time)
         return res
 
-#def parse_args():
-#    global args
-#    #parser = argparse.ArgumentParser(description="Run a tStat probe")
-#    #parser.add_argument('--logdir', metavar="log-directory",
-#    #                    help="Directory from where tStat log files are retrieved")
-#    #parser.add_argument('--fileconf', metavar="conf-file",
-#    #                    help="runtime.conf file path")
-#    #args = parser.parse_args()
-
-
-# For right now, start a Tornado-based ping server
-if __name__ == "__main__":
+def parse_args():
     global args
-
     parser = argparse.ArgumentParser(description='run a Tstat mPlane proxy')
     ## service options
-    parser.add_argument('-p', '--service-port', metavar='port', dest='SERVICE_PORT', default=mplane.httpsrv.DEFAULT_LISTEN_PORT, type=int, \
-                        help = 'run the service on the specified port [default=%s]' % mplane.httpsrv.DEFAULT_LISTEN_PORT)
-    parser.add_argument('-H', '--service-ipaddr', metavar='ip', dest='SERVICE_IP', default=mplane.httpsrv.DEFAULT_LISTEN_IP4, \
-                        help = 'run the service on the specified IP address [default=%s]' % mplane.httpsrv.DEFAULT_LISTEN_IP4)
     parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
                         help='Disable secure communication')
     parser.add_argument('-c', '--certfile', metavar="path", dest='CERTFILE', default = None,
@@ -158,7 +151,7 @@ if __name__ == "__main__":
     ## this option will be used when the async export will be developed
     #parser.add_argument('-s', '--tstat-logsdir', metavar = 'path', dest = 'TSTAT_LOGSDIR', default = None, required = True,
     #                    help = 'Tstat output logs directory path')
-    parser.add_argument('-T', '--tstat-runtimeconf', metavar = 'path', dest = 'TSTAT_RUNTIMECONF', default = None, required = True,
+    parser.add_argument('-T', '--tstat-runtimeconf', metavar = 'path', dest = 'TSTAT_RUNTIMECONF', required = True,
                         help = 'Tstat runtime.conf configuration file path')
     args = parser.parse_args()
 
@@ -179,18 +172,106 @@ if __name__ == "__main__":
         sys.exit(1)
         #raise ValueError("Need --logdir and --fileconf as parameters")
 
+class HttpProbe():
+    
+    def __init__(self, immediate_ms = 5000):
+        parse_args()
+        
+        security = not args.DISABLE_SEC
+        if security:
+            mplane.utils.check_file(args.CERTFILE)
+            cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
+            key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
+            ca = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "ca-chain"))
+            mplane.utils.check_file(cert)
+            mplane.utils.check_file(key)
+            mplane.utils.check_file(ca)
+            self.pool = HTTPSConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca) 
+        else: 
+            self.pool = HTTPConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT)
+            self.user = None
+                
+        self.immediate_ms = immediate_ms
+        self.scheduler = mplane.scheduler.Scheduler(security)
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(), args.TSTAT_RUNTIMECONF))        
+      
+    def register_capability(self, cap):
+        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + REGISTRATION_PATH
+        res = self.pool.urlopen('POST', url, 
+                body=mplane.model.unparse_json(cap).encode("utf-8"), 
+                headers={"content-type": "application/x-mplane+json"})
+        if res.status == 200:
+            print("Capability " + cap.get_label() + " successfully registered!")
+        else:
+            print("Error registering Capability" + cap.get_label())
+            print("Return code from Supervisor: " + str(res.status))            
+        pass
+    
+    def register_to_supervisor(self):
+        for key in self.scheduler.capability_keys():
+            self.register_capability(self.scheduler.capability_for_key(key))
+        pass
+    
+    def return_results(self, job):
+        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + RESULT_PATH
+        reply = job.get_reply()
+        while job.finished() is not True:
+            if job.failed():
+                reply = job.get_reply()
+                break
+            sleep(1)
+        if isinstance (reply, mplane.model.Receipt):
+            reply = job.get_reply()
+            
+        res = self.pool.urlopen('POST', url, 
+                body=mplane.model.unparse_json(reply).encode("utf-8"), 
+                headers={"content-type": "application/x-mplane+json"})
+        if res.status == 200:
+            print("Result for " + job.service._capability.get_label() + " successfully returned!")
+        else:
+            print("Error registering Capability" + job.service._capability.get_label())
+            print("Return code from Supervisor: " + str(res.status))            
+        pass
+    
+    def check_for_specs(self):
+        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + SPECIFICATION_PATH
+        res = self.pool.request('GET', url)
+        if res.status == 200:
+            specs = self.split_specs(res.data.decode("utf-8"))
+            for spec in specs:
+                msg = mplane.model.parse_json(spec)
+    
+                # hand message to scheduler
+                reply = self.scheduler.receive_message(self.user, msg)
+                job = self.scheduler.job_for_message(reply)
+                t = threading.Thread(target=self.return_results, args=[job])
+                t.start()
+        else:
+            print("Checking for Specifications...")
+        pass
+    
+    def split_specs(self, msg):
+        specs = []
+        spec_start = 0
+        spec_end = msg.find('}', spec_start)
+        while spec_end != -1:
+            specs.append(msg[spec_start:spec_end+1])
+            spec_start = spec_end + 1
+            spec_end = msg.find('}', spec_start)
+        return specs
+    
+    
 
-    security = not args.DISABLE_SEC
-    if security:
-        mplane.utils.check_file(args.CERTFILE)
-
+if __name__ == "__main__":
     mplane.model.initialize_registry()
-
-    scheduler = mplane.scheduler.Scheduler(security)
-    scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
-    scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
-    scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(), args.TSTAT_RUNTIMECONF))
-    scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(), args.TSTAT_RUNTIMECONF))
-    scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(), args.TSTAT_RUNTIMECONF))
-
-    mplane.httpsrv.runloop(scheduler, security, args.CERTFILE, address = args.SERVICE_IP, port = args.SERVICE_PORT)
+    probe = HttpProbe()
+    probe.register_to_supervisor()
+    
+    while(True):
+        probe.check_for_specs()
+        sleep(15)
+    
