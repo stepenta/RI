@@ -141,25 +141,13 @@ class tStatService(mplane.scheduler.Service):
 def parse_args():
     global args
     parser = argparse.ArgumentParser(description='run a Tstat mPlane proxy')
-    ## service options
     parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
                         help='Disable secure communication')
     parser.add_argument('-c', '--certfile', metavar="path", dest='CERTFILE', default = None,
                         help="Location of the configuration file for certificates")
-
-    ## Tstat options
-    ## this option will be used when the async export will be developed
-    #parser.add_argument('-s', '--tstat-logsdir', metavar = 'path', dest = 'TSTAT_LOGSDIR', default = None, required = True,
-    #                    help = 'Tstat output logs directory path')
     parser.add_argument('-T', '--tstat-runtimeconf', metavar = 'path', dest = 'TSTAT_RUNTIMECONF', required = True,
                         help = 'Tstat runtime.conf configuration file path')
     args = parser.parse_args()
-
-    ## check for the basic arguments
-    #if not args.TSTAT_LOGSDIR:
-    #    print('error: missing -s|--tstat-logsdir\n')
-    #    parser.print_help()
-    #    sys.exit(1)
 
     if not args.TSTAT_RUNTIMECONF:
         print('error: missing -T|--tstat-runtimeconf\n')
@@ -170,7 +158,6 @@ def parse_args():
         print('error: missing -C|--certfile\n')
         parser.print_help()
         sys.exit(1)
-        #raise ValueError("Need --logdir and --fileconf as parameters")
 
 class HttpProbe():
     
@@ -198,22 +185,24 @@ class HttpProbe():
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(), args.TSTAT_RUNTIMECONF))        
-      
-    def register_capability(self, cap):
-        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + REGISTRATION_PATH
+
+    def register_capability(self, cap, url):
         res = self.pool.urlopen('POST', url, 
-                body=mplane.model.unparse_json(cap).encode("utf-8"), 
-                headers={"content-type": "application/x-mplane+json"})
+            body=mplane.model.unparse_json(cap).encode("utf-8"), 
+            headers={"content-type": "application/x-mplane+json"})
         if res.status == 200:
             print("Capability " + cap.get_label() + " successfully registered!")
+        elif res.status == 403:
+            print("Capability " + cap.get_label() + " already registered!")
         else:
-            print("Error registering Capability" + cap.get_label())
-            print("Return code from Supervisor: " + str(res.status))            
-        pass
-    
+            print("Error registering Capability " + cap.get_label())
+            print("Return code from Supervisor: " + str(res.status)) 
+          
     def register_to_supervisor(self):
-        for key in self.scheduler.capability_keys():
-            self.register_capability(self.scheduler.capability_for_key(key))
+        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + REGISTRATION_PATH
+        for key in self.scheduler.capability_keys():  
+            cap = self.scheduler.capability_for_key(key)
+            self.register_capability(cap, url)
         pass
     
     def return_results(self, job):
@@ -239,19 +228,18 @@ class HttpProbe():
     
     def check_for_specs(self):
         url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + SPECIFICATION_PATH
-        res = self.pool.request('GET', url)
-        if res.status == 200:
-            specs = self.split_specs(res.data.decode("utf-8"))
-            for spec in specs:
-                msg = mplane.model.parse_json(spec)
-    
-                # hand message to scheduler
-                reply = self.scheduler.receive_message(self.user, msg)
-                job = self.scheduler.job_for_message(reply)
-                t = threading.Thread(target=self.return_results, args=[job])
-                t.start()
-        else:
-            print("Checking for Specifications...")
+        for token in self.scheduler.capability_keys():
+            res = self.pool.request('GET', url + "?token=" + str(token))
+            if res.status == 200:
+                specs = self.split_specs(res.data.decode("utf-8"))
+                for spec in specs:
+                    msg = mplane.model.parse_json(spec)
+        
+                    # hand message to scheduler
+                    reply = self.scheduler.receive_message(self.user, msg)
+                    job = self.scheduler.job_for_message(reply)
+                    t = threading.Thread(target=self.return_results, args=[job])
+                    t.start()
         pass
     
     def split_specs(self, msg):
@@ -263,8 +251,6 @@ class HttpProbe():
             spec_start = spec_end + 1
             spec_end = msg.find('}', spec_start)
         return specs
-    
-    
 
 if __name__ == "__main__":
     mplane.model.initialize_registry()
@@ -272,6 +258,6 @@ if __name__ == "__main__":
     probe.register_to_supervisor()
     
     while(True):
+        print("Checking for Specifications...")
         probe.check_for_specs()
-        sleep(15)
-    
+        sleep(5)

@@ -89,6 +89,23 @@ class MPlaneHandler(tornado.web.RequestHandler):
         self.set_header("Content-Type", "application/x-mplane+json")
         self.write(mplane.model.unparse_json(msg))
         self.finish()
+        
+    def _redirect(self, msg):             
+        if isinstance(msg, mplane.model.Capability):
+            self.set_status(302)
+            self.set_header("Location", self._supervisor.base_url + REGISTRATION_PATH)
+            self.finish()
+        elif isinstance(msg, mplane.model.Result):
+            self.set_status(302)
+            self.set_header("Location", self._supervisor.base_url + RESULT_PATH)
+            self.finish()
+        elif isinstance(msg, mplane.model.Exception):
+            self.set_status(302)
+            self.set_header("Location", self._supervisor.base_url + RESULT_PATH)
+            self.finish()
+        else:
+            print_then_prompt("WARNING: Unknown message received!")
+            pass
                 
 class RegistrationHandler(MPlaneHandler):
     """
@@ -107,10 +124,21 @@ class RegistrationHandler(MPlaneHandler):
         else:
             raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
 
-        # hand message to supervisor
-        self._supervisor.handle_message(msg)
-
-        print_then_prompt("Capability Received!")
+        if isinstance(msg, mplane.model.Capability):
+            found = False
+            for cap in self._supervisor.capabilities():
+                if cap.__repr__() == msg.__repr__():
+                    found = True
+                    self.set_status(403)
+                    self.set_header("Content-Type", "text/plain")
+                    self.write("Already registered")
+                    self.finish()
+            if found is False:
+                self._supervisor.add_capability(msg)
+                self.finish()
+                print_then_prompt("Capability " + msg.get_label() + " received!")
+        else:
+            self._redirect(msg)
         pass
         
 class SpecificationHandler(MPlaneHandler):
@@ -124,16 +152,18 @@ class SpecificationHandler(MPlaneHandler):
         pass
 
     def get(self):
+        cap = self._supervisor.capability_by_token(self.get_argument('token'))
         if len(self._supervisor._specifications) != 0:
             self.set_status(200)
             self.set_header("Content-Type", "application/x-mplane+json")
             for spec in self._supervisor._specifications:
-                print("spec: " + mplane.model.unparse_json(spec))
-                self.write(mplane.model.unparse_json(spec))
+                if spec.fulfills(cap):
+                    self.write(mplane.model.unparse_json(spec))
+                    self._supervisor.add_receipt(mplane.model.Receipt(specification=spec))
+                    print_then_prompt("Capability " + cap.get_label() + " successfully pulled!")
             self.finish()
-            self._supervisor._specifications.clear()
-                
-            print_then_prompt("Specification Pull OK!")
+            updated_specs = [spec for spec in self._supervisor._specifications if not spec.fulfills(cap)]
+            self._supervisor._specifications = updated_specs
         else:
             self.set_status(204)
             self.finish()
@@ -155,11 +185,17 @@ class ResultHandler(MPlaneHandler):
             msg = mplane.model.parse_json(self.request.body.decode("utf-8"))
         else:
             raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
-
-        # hand message to supervisor
-        self._supervisor.handle_message(msg)
-        
-        print_then_prompt("Result Received!")
+            
+        if isinstance(msg, mplane.model.Result):
+            # hand message to supervisor
+            self._supervisor.handle_message(msg)
+            print_then_prompt("Result Received!")
+        elif isinstance(msg, mplane.model.Exception):
+            # hand message to supervisor
+            self._supervisor.handle_message(msg)
+            print_then_prompt("Exception Received! (instead of Result)")
+        else:
+            self._redirect(msg)
         pass
 
 class CrawlParser(html.parser.HTMLParser):
@@ -195,7 +231,9 @@ class HttpSupervisor(object):
                 (r"/" + SPECIFICATION_PATH, SpecificationHandler, {'supervisor': self}),
                 (r"/" + RESULT_PATH, ResultHandler, {'supervisor': self}),
             ])
+            
         if args.DISABLE_SEC == False:
+            self.base_url = "https://" + args.LISTEN_IP4 + ":" + args.LISTEN_PORT + "/"
             cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
             key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
             ca = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "ca-chain"))
@@ -204,6 +242,7 @@ class HttpSupervisor(object):
             mplane.utils.check_file(ca)
             http_server = tornado.httpserver.HTTPServer(application, ssl_options=dict(certfile=cert, keyfile=key, cert_reqs=ssl.CERT_REQUIRED, ca_certs=ca))
         else:
+            self.base_url = "http://" + args.LISTEN_IP4 + ":" + str(args.LISTEN_PORT) + "/"
             http_server = tornado.httpserver.HTTPServer(application)
             
         http_server.listen(args.LISTEN_PORT, args.LISTEN_IP4)
@@ -224,13 +263,11 @@ class HttpSupervisor(object):
         and results, and handles Exceptions.
     
         """
-        print("got message:")
-        print(mplane.model.unparse_yaml(msg))
+        #print("got message:")
+        #print(mplane.model.unparse_yaml(msg))
     
         if isinstance(msg, mplane.model.Capability):
             self.add_capability(msg)
-        elif isinstance(msg, mplane.model.Receipt):
-            self.add_receipt(msg)
         elif isinstance(msg, mplane.model.Result):
             self.add_result(msg)
         elif isinstance(msg, mplane.model.Exception):
@@ -246,10 +283,14 @@ class HttpSupervisor(object):
     def capability_at(self, index):
         """Retrieve a capability at a given index"""
         return self._capabilities[index]
+        
+    def capability_by_token(self, token):
+        for cap in self._capabilities:
+            if str(cap.get_token()) == token:
+                return cap
 
     def add_capability(self, cap):
         """Add a capability to the capability cache"""
-        print("adding "+repr(cap))
         self._capabilities.append(cap)
 
     def clear_capabilities(self):
@@ -279,10 +320,7 @@ class HttpSupervisor(object):
 
     def _delete_receipt_for(self, token):
         self._receipts = list(filter(lambda msg: msg.get_token() != token, self._receipts))
-
-        """Iterate over receipts (pending measurements)"""
-        yield from self._results
-
+        
     def add_result(self, msg):
         """Add a receipt. Check for duplicates."""
         if msg.get_token() not in [result.get_token() for result in self._results]:
@@ -364,13 +402,19 @@ class SupervisorShell(cmd.Cmd):
 
         """
         # Retrieve a capability and create a specification
-#        try:
-        cap = self._supervisor.capability_at(int(arg.split()[0]))
-        spec = mplane.model.Specification(capability=cap)
-#        except:
-#            print ("No such capability "+arg)
-#            return
+        try:
+            cap = self._supervisor.capability_at(int(arg.split()[0]))
+            spec = mplane.model.Specification(capability=cap)
+        except:
+            print ("No such capability: "+arg)
+            return
 
+        # Check for concurrent specifications
+        for sp in self._supervisor._specifications:
+            if sp.fulfills(cap):
+                print("There is already a Specification for this Capability. Try again later")
+                return
+                
         # Set temporal scope or prompt for new one
         while self._when is None or \
               not self._when.follows(cap.when()) or \
@@ -379,6 +423,7 @@ class SupervisorShell(cmd.Cmd):
             self._when = mplane.model.When(input())
 
         spec.set_when(self._when)
+        
 
         # Fill in single values
         spec.set_single_values()

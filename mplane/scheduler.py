@@ -217,7 +217,7 @@ class Scheduler(object):
 
     def add_service(self, service):
         """Add a service to this Scheduler"""
-        print("Added "+repr(service))
+        #print("Added "+repr(service))
         self.services.append(service)
         cap = service.capability()
         self._capability_cache[cap.get_token()] = cap

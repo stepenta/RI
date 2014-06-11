@@ -500,10 +500,10 @@ class When(object):
     """
     def __init__(self, valstr=None, a=None, b=None, d=None, p=None):
         super().__init__()
-        self._a = a
-        self._b = b
-        self._d = d
-        self._p = p
+        self._a = a     # Start Time
+        self._b = b     # End Time
+        self._d = d     # Duration
+        self._p = p     # Period
 
         if valstr is not None:
             self._parse(valstr)
