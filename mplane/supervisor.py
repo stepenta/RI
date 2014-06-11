@@ -24,7 +24,7 @@
 from threading import Thread
 import mplane.model
 import mplane.utils
-import mplane.httpsrv
+import ssl
 import sys
 import cmd
 import readline
@@ -54,10 +54,10 @@ def parse_args():
     global args
     parser = argparse.ArgumentParser(description="run mPlane Supervisor")
 
-    parser.add_argument('-p', '--listen-port', metavar='port', dest='LISTEN_PORT', default=mplane.httpsrv.DEFAULT_LISTEN_PORT, type=int, \
-                        help = 'run the service on the specified port [default=%d]' % mplane.httpsrv.DEFAULT_LISTEN_PORT)
-    parser.add_argument('-H', '--listen-ipaddr', metavar='ip', dest='LISTEN_IP4', default=mplane.httpsrv.DEFAULT_LISTEN_IP4, \
-                        help = 'run the service on the specified IP address [default=%s]' % mplane.httpsrv.DEFAULT_LISTEN_IP4)
+    parser.add_argument('-p', '--listen-port', metavar='port', dest='LISTEN_PORT', default=DEFAULT_LISTEN_PORT, type=int, \
+                        help = 'run the service on the specified port [default=%d]' % DEFAULT_LISTEN_PORT)
+    parser.add_argument('-H', '--listen-ipaddr', metavar='ip', dest='LISTEN_IP4', default=DEFAULT_LISTEN_IP4, \
+                        help = 'run the service on the specified IP address [default=%s]' % DEFAULT_LISTEN_IP4)
 
     parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
                         help='Disable secure communication')
@@ -233,7 +233,7 @@ class HttpSupervisor(object):
             ])
             
         if args.DISABLE_SEC == False:
-            self.base_url = "https://" + args.LISTEN_IP4 + ":" + args.LISTEN_PORT + "/"
+            self.base_url = "https://" + args.LISTEN_IP4 + ":" + str(args.LISTEN_PORT) + "/"
             cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
             key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
             ca = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "ca-chain"))

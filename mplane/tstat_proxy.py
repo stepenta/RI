@@ -36,7 +36,7 @@ from urllib3 import HTTPConnectionPool
 import argparse
 import sys
 
-SUPERVISOR_IP4 = '127.0.0.1'
+SUPERVISOR_IP4 = 'mplane.org'
 SUPERVISOR_PORT = 8888
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -174,6 +174,7 @@ class HttpProbe():
             mplane.utils.check_file(key)
             mplane.utils.check_file(ca)
             self.pool = HTTPSConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca) 
+            self.user = "mPlane-Client"
         else: 
             self.pool = HTTPConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT)
             self.user = None
@@ -199,14 +200,14 @@ class HttpProbe():
             print("Return code from Supervisor: " + str(res.status)) 
           
     def register_to_supervisor(self):
-        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + REGISTRATION_PATH
+        url = "/" + REGISTRATION_PATH
         for key in self.scheduler.capability_keys():  
             cap = self.scheduler.capability_for_key(key)
             self.register_capability(cap, url)
         pass
     
     def return_results(self, job):
-        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + RESULT_PATH
+        url = "/" + RESULT_PATH
         reply = job.get_reply()
         while job.finished() is not True:
             if job.failed():
@@ -227,7 +228,7 @@ class HttpProbe():
         pass
     
     def check_for_specs(self):
-        url = "http://" + SUPERVISOR_IP4 + ":" + str(SUPERVISOR_PORT) + "/" + SPECIFICATION_PATH
+        url = "/" + SPECIFICATION_PATH
         for token in self.scheduler.capability_keys():
             res = self.pool.request('GET', url + "?token=" + str(token))
             if res.status == 200:
