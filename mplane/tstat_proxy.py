@@ -197,7 +197,7 @@ class HttpProbe():
             print("Capability " + cap.get_label() + " already registered!")
         else:
             print("Error registering Capability " + cap.get_label())
-            print("Return code from Supervisor: " + str(res.status)) 
+            print("Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
           
     def register_to_supervisor(self):
         url = "/" + REGISTRATION_PATH
@@ -223,8 +223,8 @@ class HttpProbe():
         if res.status == 200:
             print("Result for " + job.service._capability.get_label() + " successfully returned!")
         else:
-            print("Error registering Capability" + job.service._capability.get_label())
-            print("Return code from Supervisor: " + str(res.status))            
+            print("Error returning Result for " + job.service._capability.get_label())
+            print("Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
         pass
     
     def check_for_specs(self):

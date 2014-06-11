@@ -128,6 +128,7 @@ class RegistrationHandler(MPlaneHandler):
             found = False
             for cap in self._supervisor.capabilities():
                 if cap.__repr__() == msg.__repr__():
+                    print("WARNING: Capability " + msg.get_label() + " already registered!")
                     found = True
                     self.set_status(403)
                     self.set_header("Content-Type", "text/plain")
@@ -191,8 +192,13 @@ class ResultHandler(MPlaneHandler):
             
         if isinstance(msg, mplane.model.Result):
             # hand message to supervisor
-            self._supervisor.handle_message(msg)
-            print_then_prompt("Result Received!")
+            if self._supervisor.handle_message(msg):
+                print_then_prompt("Result Received!")
+            else:
+                self.set_status(403)
+                self.set_header("Content-Type", "text/plain")
+                self.write("Result unexpected")
+                self.finish()
         elif isinstance(msg, mplane.model.Exception):
             # hand message to supervisor
             self._supervisor.handle_message(msg)
@@ -325,10 +331,16 @@ class HttpSupervisor(object):
         self._receipts = list(filter(lambda msg: msg.get_token() != token, self._receipts))
         
     def add_result(self, msg):
-        """Add a receipt. Check for duplicates."""
-        if msg.get_token() not in [result.get_token() for result in self._results]:
-            self._results.append(msg)
-            self._delete_receipt_for(msg.get_token())
+        """Add a receipt. Check for duplicates and if result is expected."""
+        
+        for spec in self._specifications:
+            if spec.get_token() == msg.get_token():
+                if msg.get_token() not in [result.get_token() for result in self._results]:
+                    self._results.append(msg)
+                    self._delete_receipt_for(msg.get_token())
+                return True
+        print("WARNING: Received an unexpected Result!")
+        return False
 
     def measurements(self):
         """Iterate over all measurements (receipts and results)"""
