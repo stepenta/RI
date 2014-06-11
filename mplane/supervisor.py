@@ -135,6 +135,9 @@ class RegistrationHandler(MPlaneHandler):
                     self.finish()
             if found is False:
                 self._supervisor.add_capability(msg)
+                self.set_status(200)
+                self.set_header("Content-Type", "text/plain")
+                self.write("OK")
                 self.finish()
                 print_then_prompt("Capability " + msg.get_label() + " received!")
         else:
