@@ -140,7 +140,7 @@ class RegistrationHandler(MPlaneHandler):
                 self.set_header("Content-Type", "text/plain")
                 self.write("OK")
                 self.finish()
-                print_then_prompt("Capability " + msg.get_label() + " received!")
+                print_then_prompt("Capability " + msg.get_label() + " received from " + self.request.remote_ip)
         else:
             self._redirect(msg)
         pass
@@ -278,7 +278,7 @@ class HttpSupervisor(object):
         if isinstance(msg, mplane.model.Capability):
             self.add_capability(msg)
         elif isinstance(msg, mplane.model.Result):
-            self.add_result(msg)
+            return self.add_result(msg)
         elif isinstance(msg, mplane.model.Exception):
             self._handle_exception(msg)
         else:
@@ -333,8 +333,8 @@ class HttpSupervisor(object):
     def add_result(self, msg):
         """Add a receipt. Check for duplicates and if result is expected."""
         
-        for spec in self._specifications:
-            if spec.get_token() == msg.get_token():
+        for receipt in self.receipts():
+            if str(receipt.get_token()) == str(msg.get_token()):
                 if msg.get_token() not in [result.get_token() for result in self._results]:
                     self._results.append(msg)
                     self._delete_receipt_for(msg.get_token())
