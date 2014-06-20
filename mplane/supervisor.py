@@ -206,7 +206,7 @@ class SpecificationHandler(MPlaneHandler):
                 if spec.fulfills(cap):
                     self.write(mplane.model.unparse_json(spec.simple_spec()))
                     self._supervisor.add_receipt(mplane.model.Receipt(specification=spec.simple_spec()))
-                    print_then_prompt("Capability " + cap.simple_cap().get_label() + " successfully pulled!")
+                    print_then_prompt("Capability " + cap.simple_cap().get_label() + " successfully pulled by " + self.request.remote_ip)
             self.finish()
             updated_specs = [spec for spec in self._supervisor._specifications if not spec.fulfills(cap)]
             self._supervisor._specifications = updated_specs
@@ -235,7 +235,7 @@ class ResultHandler(MPlaneHandler):
         if isinstance(msg, mplane.model.Result):
             # hand message to supervisor
             if self._supervisor.add_result(msg):
-                print_then_prompt("Result Received!")
+                print_then_prompt("Result received by " + self.request.remote_ip)
             else:
                 self.set_status(403)
                 self.set_header("Content-Type", "text/plain")
@@ -383,7 +383,7 @@ class SupervisorShell(cmd.Cmd):
     def do_listcap(self, arg):
         """List available capabilities by index"""
         for i, cap in enumerate(self._supervisor.capabilities()):
-            print ("%4u: %s" % (i, repr(cap.simple_cap())))
+            print (str(i) + ": " + cap.simple_cap().get_label() + " from " + cap.ip4())
 
     def do_listmeas(self, arg):
         """List running/completed measurements by index"""
@@ -411,7 +411,6 @@ class SupervisorShell(cmd.Cmd):
         if len(arg) > 0:
             try:
                 meas = self._supervisor.measurement_at(int(arg.split()[0]))
-                print("ok fin qui fuori")
                 self._show_stmt(meas)
             except:
                 print("No such measurement "+arg)
