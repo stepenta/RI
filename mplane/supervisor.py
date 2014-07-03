@@ -28,6 +28,8 @@ import ssl
 import sys
 import cmd
 import readline
+import collections
+from collections import OrderedDict
 import html.parser
 import urllib3
 from urllib3 import HTTPSConnectionPool
@@ -79,44 +81,18 @@ def print_then_prompt(line):
     print('|mplane| ', end="", flush = True)
     pass
 
-class ComplexSpecification(object):
-    """
-    An High-Level Specification contains additional informations about
-    a Specification, such as the IPv4 address of the component to which 
-    the Specification is directed.
+def get_dn(supervisor, request):      
+    if supervisor._sec == True:
+        dn = ""
+        for elem in request.get_ssl_certificate().get('subject'):
+            if dn == "":
+                dn = dn + str(elem[0][1])
+            else: 
+                dn = dn + "." + str(elem[0][1])
+    else:
+        dn = "org.mplane.Test PKI.Test Clients.mPlane-Client"
+    return dn
 
-    """
-    
-    def __init__(self, spec, ip4):
-        self._spec = spec
-        self._ip4 = ip4
-        
-    def simple_spec(self):
-        return self._spec
-        
-    def ip4(self):
-        return self._ip4
-        
-    def fulfills(self, cap):
-        return (self.simple_spec().fulfills(cap.simple_cap()) and self.ip4() == cap.ip4())
-
-class ComplexCapability(object):
-    """
-    An High-Level Capability contains additional informations about
-    a Capability, such as the IPv4 address of the component.
-
-    """
-    
-    def __init__(self, cap, ip4):
-        self._cap = cap
-        self._ip4 = ip4
-        
-    def simple_cap(self):
-        return self._cap
-        
-    def ip4(self):
-        return self._ip4  
-   
 class MPlaneHandler(tornado.web.RequestHandler):
     """
     Abstract tornado RequestHandler that allows a 
@@ -154,7 +130,8 @@ class RegistrationHandler(MPlaneHandler):
     """
     def initialize(self, supervisor):
         self._supervisor = supervisor
-        pass
+        self.dn = get_dn(self._supervisor, self.request)
+        
 
     def post(self):
         # unwrap json message from body
@@ -164,25 +141,29 @@ class RegistrationHandler(MPlaneHandler):
             raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
 
         if isinstance(msg, mplane.model.Capability):
-            found = False
-            for complex_cap in self._supervisor.capabilities():
-                if (complex_cap.simple_cap().__repr__() == msg.__repr__() and
-                    complex_cap.ip4() == self.request.remote_ip):
-                    print("WARNING: Capability " + msg.get_label() + " already registered!")
-                    found = True
-                    self.set_status(403)
-                    self.set_header("Content-Type", "text/plain")
-                    self.write("Already registered")
-                    self.finish()
-            if found is False:
-                spec_url = self._supervisor.base_url + SPECIFICATION_PATH
-                complex_cap = ComplexCapability(msg, self.request.remote_ip)
-                self._supervisor.add_capability(complex_cap)
+            if len(self._supervisor._capabilities) == 0:
+                self._supervisor._capabilities[self.dn] = [msg]
                 self.set_status(200)
-                self.set_header("Content-Type", "text/plain")
-                self.write(spec_url)
                 self.finish()
-                print_then_prompt("Capability " + msg.get_label() + " received from " + self.request.remote_ip)
+                print_then_prompt("Capability " + msg.get_label() + " received from " + self.dn)
+            else:
+                found = False
+                for cap in self._supervisor._capabilities[self.dn]:
+                    if str(cap.get_token()) == str(msg.get_token()):
+                        print("WARNING: Capability " + msg.get_label() + " already registered!")
+                        found = True
+                        self.set_status(403)
+                        self.set_header("Content-Type", "text/plain")
+                        self.write("Already registered")
+                        self.finish()
+                if found is False:
+                    if self.dn not in self._supervisor._capabilities:
+                        self._supervisor._capabilities[self.dn] = [msg]
+                    else:
+                        self._supervisor._capabilities[self.dn].append(msg)
+                    self.set_status(200)
+                    self.finish()
+                    print_then_prompt("Capability " + msg.get_label() + " received from " + self.dn)
         else:
             self._redirect(msg)
         pass
@@ -195,21 +176,21 @@ class SpecificationHandler(MPlaneHandler):
     """
     def initialize(self, supervisor):
         self._supervisor = supervisor
-        pass
+        self.dn = get_dn(self._supervisor, self.request)
 
     def get(self):
-        cap = self._supervisor.capability_by_token_and_ip(self.get_argument('token'), self.request.remote_ip)
-        if len(self._supervisor._specifications) != 0:
+        specs = self._supervisor._specifications.pop(self.dn, [])
+        if len(specs) != 0:
             self.set_status(200)
             self.set_header("Content-Type", "application/x-mplane+json")
-            for spec in self._supervisor._specifications:
-                if spec.fulfills(cap):
-                    self.write(mplane.model.unparse_json(spec.simple_spec()))
-                    self._supervisor.add_receipt(mplane.model.Receipt(specification=spec.simple_spec()))
-                    print_then_prompt("Capability " + cap.simple_cap().get_label() + " successfully pulled by " + self.request.remote_ip)
+            for spec in specs:
+                    self.write(mplane.model.unparse_json(spec))
+                    if self.dn not in self._supervisor._receipts:
+                        self._supervisor._receipts[self.dn] = [mplane.model.Receipt(specification=spec)]
+                    else:
+                        self._supervisor._receipts[self.dn].append(mplane.model.Receipt(specification=spec))
+                    print_then_prompt("Specification " + spec.get_label() + " successfully pulled by " + self.dn)
             self.finish()
-            updated_specs = [spec for spec in self._supervisor._specifications if not spec.fulfills(cap)]
-            self._supervisor._specifications = updated_specs
         else:
             self.set_status(204)
             self.finish()
@@ -223,6 +204,7 @@ class ResultHandler(MPlaneHandler):
 
     def initialize(self, supervisor):
         self._supervisor = supervisor
+        self.dn = get_dn(self._supervisor, self.request)
         pass
 
     def post(self):
@@ -234,8 +216,8 @@ class ResultHandler(MPlaneHandler):
             
         if isinstance(msg, mplane.model.Result):
             # hand message to supervisor
-            if self._supervisor.add_result(msg):
-                print_then_prompt("Result received by " + self.request.remote_ip)
+            if self._supervisor.add_result(msg, self.dn):
+                print_then_prompt("Result received by " + self.dn)
             else:
                 self.set_status(403)
                 self.set_header("Content-Type", "text/plain")
@@ -282,8 +264,8 @@ class HttpSupervisor(object):
                 (r"/" + SPECIFICATION_PATH, SpecificationHandler, {'supervisor': self}),
                 (r"/" + RESULT_PATH, ResultHandler, {'supervisor': self}),
             ])
-            
-        if args.DISABLE_SEC == False:
+        self._sec = not args.DISABLE_SEC    
+        if self._sec == True:
             self.base_url = "https://" + args.LISTEN_IP4 + ":" + str(args.LISTEN_PORT) + "/"
             cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
             key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
@@ -303,69 +285,43 @@ class HttpSupervisor(object):
         print("new Supervisor: "+str(args.LISTEN_IP4)+":"+str(args.LISTEN_PORT))
 
         # empty capability and measurement lists
-        self._capabilities = []
-        self._specifications = []
-        self._receipts = []
-        self._results = []
-
-    def capabilities(self):
-        """Iterate over capabilities"""
-        yield from self._capabilities
-
-    def capability_at(self, index):
-        """Retrieve a capability at a given index"""
-        return self._capabilities[index]
+        self._capabilities = OrderedDict()
+        self._specifications = OrderedDict()
+        self._receipts = OrderedDict()
+        self._results = OrderedDict()
         
-    def capability_by_token_and_ip(self, token, ip):
-        for cap in self._capabilities:
-            if (str(cap.simple_cap().get_token()) == token and
-                cap.ip4() == ip):
-                return cap
-
-    def add_capability(self, cap):
-        """Add a capability to the capability cache"""
-        self._capabilities.append(cap)
-
-    def clear_capabilities(self):
-        """Clear the capability cache"""
-        self._capabilities.clear()
-       
-    def receipts(self):
-        """Iterate over receipts (pending measurements)"""
-        yield from self._receipts
-
-    def add_receipt(self, msg):
-        """Add a receipt. Check for duplicates."""
-        if msg.get_token() not in [receipt.get_token() for receipt in self.receipts()]:
-            self._receipts.append(msg)
-
-    def _delete_receipt_for(self, token):
-        self._receipts = list(filter(lambda msg: msg.get_token() != token, self._receipts))
-        
-    def add_result(self, msg):
+    def add_result(self, msg, dn):
         """Add a receipt. Check for duplicates and if result is expected."""
-        
-        for receipt in self.receipts():
-            if str(receipt.get_token()) == str(msg.get_token()):
-                if msg.get_token() not in [result.get_token() for result in self._results]:
-                    self._results.append(msg)
-                    self._delete_receipt_for(msg.get_token())
-                return True
+        if dn in self._receipts:
+            for receipt in self._receipts[dn]:
+                if str(receipt.get_token()) == str(msg.get_token()):
+                    if dn not in self._results:
+                        self._results[dn] = [msg]
+                    else:
+                        self._results[dn].append(msg)
+                    
+                    self._receipts[dn].remove(receipt)
+                    return True
         print("WARNING: Received an unexpected Result!")
         return False
 
     def measurements(self):
         """Iterate over all measurements (receipts and results)"""
-        yield from self._results
-        yield from self._receipts
-
-    def measurement_at(self, index):
-        """Retrieve a measurement at a given index"""
-        if index >= len(self._results):
-            index -= len(self._results)
-            return self._receipts[index]
-        else:
-            return self._results[index]
+        measurements = OrderedDict()
+        
+        for key in self._receipts:
+            if key not in measurements:
+                measurements[key] = [self._receipts[key]]
+            else:
+                measurements[key].append(self._receipts[key])
+                
+        for key in self._results:
+            if key not in measurements:
+                measurements[key] = [self._results[key]]
+            else:
+                measurements[key].append(self._results[key])
+                
+        return measurements
 
     def _handle_exception(self, exc):
         print(repr(exc))
@@ -382,13 +338,11 @@ class SupervisorShell(cmd.Cmd):
 
     def do_listcap(self, arg):
         """List available capabilities by index"""
-        for i, cap in enumerate(self._supervisor.capabilities()):
-            print (str(i) + ": " + cap.simple_cap().get_label() + " from " + cap.ip4())
-
-    def do_listmeas(self, arg):
-        """List running/completed measurements by index"""
-        for i, meas in enumerate(self._supervisor.measurements()):
-            print ("%4u: %s" % (i, repr(meas)))
+        i = 1
+        for key in self._supervisor._capabilities:
+            for cap in self._supervisor._capabilities[key]:
+                print(str(i) + " - " + cap.get_label() + " from " + key)
+                i = i + 1
 
     def do_showcap(self, arg):
         """
@@ -398,26 +352,61 @@ class SupervisorShell(cmd.Cmd):
         """
         if len(arg) > 0:
             try:
-                self._show_stmt(self._supervisor.capability_at(int(arg.split()[0])).simple_cap())
+                i = 1
+                for key in self._supervisor._capabilities:
+                    for cap in self._supervisor._capabilities[key]:
+                        if str(i) == arg:
+                            self._show_stmt(cap)
+                        i = i + 1
             except:
-                print("No such capability "+arg)
+                print("No such capability: " + arg)
         else:
-            for i, cap in enumerate(self._supervisor.capabilities()):
-                print ("cap %4u ---------------------------------------" % i)
-                self._show_stmt(cap.simple_cap())
+            for key in self._supervisor._capabilities:
+                for cap in self._supervisor._capabilities[key]:
+                    self._show_stmt(cap)
+
+    def do_listmeas(self, arg):
+        """List running/completed measurements by index"""
+        i = 1
+        for key in self._supervisor._receipts:
+            if len(self._supervisor._receipts[key]) > 0:
+                for receipt in self._supervisor._receipts[key]:
+                    print(str(i) + " - " + repr(receipt))
+                    i = i + 1
+        for key in self._supervisor._results:
+            if len(self._supervisor._results[key]) > 0:
+                for result in self._supervisor._results[key]:
+                    print(str(i) + " - " + repr(result))
+                    i = i + 1
 
     def do_showmeas(self, arg):
         """Show receipt/results for a measurement, given a measurement index"""
         if len(arg) > 0:
-            try:
-                meas = self._supervisor.measurement_at(int(arg.split()[0]))
-                self._show_stmt(meas)
-            except:
-                print("No such measurement "+arg)
+            i = 1
+            for key in self._supervisor._receipts:
+                if len(self._supervisor._receipts[key]) > 0:
+                    for receipt in self._supervisor._receipts[key]:
+                        if str(i) == arg:
+                            self._show_stmt(receipt)
+                            return
+                        i = i + 1
+            for key in self._supervisor._results:
+                if len(self._supervisor._results[key]) > 0:
+                    for result in self._supervisor._results[key]:
+                        if str(i) == arg:
+                            self._show_stmt(result)
+                            return
+                        i = i + 1
+            print("No such measurement: " + arg)
         else:
-            for i, meas in enumerate(self._supervisor.measurements()):
-                print ("meas %4u --------------------------------------" % i)
-                self._show_stmt(meas)
+            for key in self._supervisor._receipts:
+                if len(self._supervisor._receipts[key]) > 0:
+                    for receipt in self._supervisor._receipts[key]:
+                        self._show_stmt(receipt)
+            for key in self._supervisor._results:
+                if len(self._supervisor._results[key]) > 0:
+                    for result in self._supervisor._results[key]:
+                        self._show_stmt(result)
 
     def _show_stmt(self, stmt):
         print(mplane.model.unparse_yaml(stmt))
@@ -430,53 +419,62 @@ class SupervisorShell(cmd.Cmd):
 
         """
         # Retrieve a capability and create a specification
+        dn = None
+        cap = None
         try:
-            cap = self._supervisor.capability_at(int(arg.split()[0]))
+            i = 1
+            for key in self._supervisor._capabilities:
+                for c in self._supervisor._capabilities[key]:
+                    if str(i) == arg:
+                        dn = key
+                        cap = c
+                    i = i + 1
         except:
-            print ("No such capability: "+arg)
-            return
-
-        simple_spec = mplane.model.Specification(capability=cap.simple_cap())
-        spec = ComplexSpecification(simple_spec, cap.ip4())
-        
-        # Check for concurrent specifications
-        for sp in self._supervisor._specifications:
-            if sp.fulfills(cap):
-                print("There is already a Specification for this Capability. Try again later")
-                return
-                
+            print("No such capability: " + arg)
+            
+        spec = mplane.model.Specification(capability=cap)
+            
         # Set temporal scope or prompt for new one
         while self._when is None or \
-              not self._when.follows(cap.simple_cap().when()) or \
-              (self._when.period is None and cap.simple_cap().when().period() is not None):
+              not self._when.follows(cap.when()) or \
+              (self._when.period is None and cap.when().period() is not None):
             sys.stdout.write("|when| = ")
             self._when = mplane.model.When(input())
 
-        spec.simple_spec().set_when(self._when)
+        spec.set_when(self._when)
 
         # Fill in single values
-        spec.simple_spec().set_single_values()
+        spec.set_single_values()
 
         # Fill in parameter values
-        for pname in spec.simple_spec().parameter_names():
-            if spec.simple_spec().get_parameter_value(pname) is None:
+        for pname in spec.parameter_names():
+            if spec.get_parameter_value(pname) is None:
                 if pname in self._defaults:
                     # set parameter value from defaults
                     print("|param| "+pname+" = "+self._defaults[pname])
-                    spec.simple_spec().set_parameter_value(pname, self._defaults[pname])
+                    spec.set_parameter_value(pname, self._defaults[pname])
                 else:
                     # set parameter value with input
                     sys.stdout.write("|param| "+pname+" = ")
-                    spec.simple_spec().set_parameter_value(pname, input())
+                    spec.set_parameter_value(pname, input())
             else:
                 # FIXME we really want to unparse this
-                print("|param| "+pname+" = "+str(spec.simple_spec().get_parameter_value(pname)))
+                print("|param| "+pname+" = "+str(spec.get_parameter_value(pname)))
 
         # Validate specification
-        spec.simple_spec().validate()
+        spec.validate()
 
         # And send it to the server
-        self._supervisor._specifications.append(spec)
+        
+        if dn not in self._supervisor._specifications:
+            self._supervisor._specifications[dn] = [spec]
+        else:
+            # Check for concurrent specifications
+            for spec in self._supervisor._specifications[dn]:
+                if spec.fulfills(cap):
+                    print("There is already a Specification for this Capability. Try again later")
+                    return 
+            self._supervisor._specifications[dn].append(spec)
         print("ok")
 
     def do_show(self, arg):

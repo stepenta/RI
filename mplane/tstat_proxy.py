@@ -163,7 +163,7 @@ def parse_args():
 class HttpProbe():
     
     def __init__(self, immediate_ms = 5000):
-        self.spec_path = SPECIFICATION_PATH
+        self.spec_path = "/" + SPECIFICATION_PATH
         parse_args()
         
         security = not args.DISABLE_SEC
@@ -195,7 +195,7 @@ class HttpProbe():
             headers={"content-type": "application/x-mplane+json"})
         if res.status == 200:
             print("Capability " + cap.get_label() + " successfully registered!")
-            self.spec_path = util.parse_url(res.data.decode("utf-8")).path
+            #self.spec_path = util.parse_url(res.data.decode("utf-8")).path
         elif res.status == 403:
             print("Capability " + cap.get_label() + " already registered!")
         else:
@@ -232,7 +232,7 @@ class HttpProbe():
     
     def check_for_specs(self):
         for token in self.scheduler.capability_keys():
-            res = self.pool.request('GET', self.spec_path + "?token=" + str(token))
+            res = self.pool.request('GET', self.spec_path)
             if res.status == 200:
                 specs = self.split_specs(res.data.decode("utf-8"))
                 for spec in specs:
