@@ -136,37 +136,52 @@ class RegistrationHandler(MPlaneHandler):
     def post(self):
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
-            msg = mplane.model.parse_json(self.request.body.decode("utf-8"))
+            new_caps = self.split_caps(self.request.body.decode("utf-8"))
         else:
             raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
 
-        if isinstance(msg, mplane.model.Capability):
-            if len(self._supervisor._capabilities) == 0:
-                self._supervisor._capabilities[self.dn] = [msg]
-                self.set_status(200)
-                self.finish()
-                print_then_prompt("Capability " + msg.get_label() + " received from " + self.dn)
-            else:
-                found = False
-                for cap in self._supervisor._capabilities[self.dn]:
-                    if str(cap.get_token()) == str(msg.get_token()):
-                        print("WARNING: Capability " + msg.get_label() + " already registered!")
-                        found = True
-                        self.set_status(403)
-                        self.set_header("Content-Type", "text/plain")
-                        self.write("Already registered")
-                        self.finish()
-                if found is False:
-                    if self.dn not in self._supervisor._capabilities:
-                        self._supervisor._capabilities[self.dn] = [msg]
-                    else:
-                        self._supervisor._capabilities[self.dn].append(msg)
-                    self.set_status(200)
-                    self.finish()
-                    print_then_prompt("Capability " + msg.get_label() + " received from " + self.dn)
+        success = False
+        
+        # register capabilities
+        for new_cap in new_caps:
+            if isinstance(new_cap, mplane.model.Capability):
+                if len(self._supervisor._capabilities) == 0:
+                    self._supervisor._capabilities[self.dn] = [new_cap]
+                    print_then_prompt("Capability " + new_cap.get_label() + " received from " + self.dn)
+                    success = True
+                else:
+                    found = False
+                    for cap in self._supervisor._capabilities[self.dn]:
+                        if str(cap.get_token()) == str(new_cap.get_token()):
+                            print("WARNING: Capability " + new_cap.get_label() + " already registered!")
+                            found = True
+                    if found is False:
+                        if self.dn not in self._supervisor._capabilities:
+                            self._supervisor._capabilities[self.dn] = [new_cap]
+                        else:
+                            self._supervisor._capabilities[self.dn].append(new_cap)
+                        print_then_prompt("Capability " + new_cap.get_label() + " received from " + self.dn)
+                        success = True
+                        
+        # reply to the component
+        if success == True:
+            self.set_status(200)
+            self.finish()
         else:
-            self._redirect(msg)
-        pass
+            self.set_status(403)
+            self.set_header("Content-Type", "text/plain")
+            self.write("Invalid registration format")
+            self.finish()
+    
+    def split_caps(self, msg):
+        caps = []
+        cap_start = 0
+        cap_end = msg.find('}', cap_start)
+        while cap_end != -1:
+            caps.append(mplane.model.parse_json(msg[cap_start:cap_end+1]))
+            cap_start = cap_end + 1
+            cap_end = msg.find('}', cap_start)
+        return caps
         
 class SpecificationHandler(MPlaneHandler):
     """

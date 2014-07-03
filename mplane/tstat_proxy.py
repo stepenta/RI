@@ -187,27 +187,26 @@ class HttpProbe():
         self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(), args.TSTAT_RUNTIMECONF))
-        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(), args.TSTAT_RUNTIMECONF))        
-
-    def register_capability(self, cap, url):
-        res = self.pool.urlopen('POST', url, 
-            body=mplane.model.unparse_json(cap).encode("utf-8"), 
-            headers={"content-type": "application/x-mplane+json"})
-        if res.status == 200:
-            print("Capability " + cap.get_label() + " successfully registered!")
-            #self.spec_path = util.parse_url(res.data.decode("utf-8")).path
-        elif res.status == 403:
-            print("Capability " + cap.get_label() + " already registered!")
-        else:
-            print("Error registering Capability " + cap.get_label())
-            print("Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(), args.TSTAT_RUNTIMECONF))
           
     def register_to_supervisor(self):
         url = "/" + REGISTRATION_PATH
+        caps_list = ""
         for key in self.scheduler.capability_keys():  
             cap = self.scheduler.capability_for_key(key)
-            self.register_capability(cap, url)
-        pass
+            caps_list = caps_list + mplane.model.unparse_json(cap)
+        res = self.pool.urlopen('POST', url, 
+            body=caps_list.encode("utf-8"), 
+            headers={"content-type": "application/x-mplane+json"})
+        if res.status == 200:
+            print("Capabilities successfully registered:")
+            for key in self.scheduler.capability_keys():  
+                cap = self.scheduler.capability_for_key(key)
+                print("    " + cap.get_label())
+        elif res.status == 403:
+            print("Invalid registration format!")
+        else:
+            print("Error registering capabilities, Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
     
     def return_results(self, job):
         url = "/" + RESULT_PATH
@@ -260,7 +259,7 @@ if __name__ == "__main__":
     probe = HttpProbe()
     probe.register_to_supervisor()
     
+    print("Checking for Specifications...")
     while(True):
-        print("Checking for Specifications...")
         probe.check_for_specs()
         sleep(5)
