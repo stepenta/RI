@@ -56,9 +56,9 @@ class Authorization(object):
 			if ((cap_name in self.cr) and (user_name in self.ur)): # Deny unless explicitly allowed in .conf files
 				intersection = self.cr[cap_name] & self.ur[user_name]
 				if len(intersection) > 0:
-					print ("Capability " + str(cap_name) + " allowed for " + user_name + " as " + str(intersection))
+					#print ("Capability " + str(cap_name) + " allowed for " + user_name + " as " + str(intersection))
 					return True
-			print ("Capability " + str(cap_name) + " denied for " + user_name)
+			#print ("Capability " + str(cap_name) + " denied for " + user_name)
 			return False
 		else:
 			return True

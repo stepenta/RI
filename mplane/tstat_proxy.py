@@ -29,9 +29,8 @@ from datetime import datetime
 from time import sleep
 import mplane.model
 import mplane.scheduler
-import mplane.httpsrv
+import mplane.utils
 import mplane.tstat_caps
-from urllib3 import util
 from urllib3 import HTTPSConnectionPool
 from urllib3 import HTTPConnectionPool
 import argparse
@@ -182,7 +181,7 @@ class HttpProbe():
             self.user = None
                 
         self.immediate_ms = immediate_ms
-        self.scheduler = mplane.scheduler.Scheduler(security)
+        self.scheduler = mplane.scheduler.Scheduler() #(security)
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(), args.TSTAT_RUNTIMECONF))
