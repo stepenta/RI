@@ -24,6 +24,7 @@
 from threading import Thread
 import mplane.model
 import mplane.utils
+import mplane.sec
 import ssl
 import sys
 import cmd
@@ -45,6 +46,9 @@ DEFAULT_LISTEN_IP4 = '127.0.0.1'
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
 RESULT_PATH = "result"
+S_CAPABILITY_PATH = "s_capability"
+S_SPECIFICATION_PATH = "s_specification"
+S_RESULT_PATH = "s_result"
 
 """
 Generic mPlane Supervisor for cap-push, spec-pull workflows.
@@ -147,6 +151,9 @@ class RegistrationHandler(MPlaneHandler):
             if isinstance(new_cap, mplane.model.Capability):
                 if len(self._supervisor._capabilities) == 0:
                     self._supervisor._capabilities[self.dn] = [new_cap]
+                    self._supervisor.add_ip_to_label(new_cap.get_label(), self.request.remote_ip)
+                    self._supervisor.add_cap_to_label(new_cap)
+                    self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
                     print_then_prompt("Capability " + new_cap.get_label() + " received from " + self.dn)
                     success = True
                 else:
@@ -160,6 +167,8 @@ class RegistrationHandler(MPlaneHandler):
                             self._supervisor._capabilities[self.dn] = [new_cap]
                         else:
                             self._supervisor._capabilities[self.dn].append(new_cap)
+                        self._supervisor.add_ip_to_label(new_cap.get_label(), self.request.remote_ip)
+                        self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
                         print_then_prompt("Capability " + new_cap.get_label() + " received from " + self.dn)
                         success = True
                         
@@ -246,21 +255,83 @@ class ResultHandler(MPlaneHandler):
             self._redirect(msg)
         pass
 
-class CrawlParser(html.parser.HTMLParser):
+class S_CapabilityHandler(MPlaneHandler):
     """
-    HTML parser class to extract all URLS in a href attributes in
-    an HTML page. Used to extract links to Capabilities exposed
-    as link collections.
+    Exposes the capabilities registered to this supervisor. 
+    URIs ending with "capability" will result in an HTML page 
+    listing links to each capability. 
 
     """
-    def __init__(self, **kwargs):
-        super(CrawlParser, self).__init__(**kwargs)
-        self.urls = []
 
-    def handle_starttag(self, tag, attrs):
-        attrs = {k: v for (k,v) in attrs}
-        if tag == "a" and "href" in attrs:
-            self.urls.append(attrs["href"])
+    def initialize(self, supervisor):
+        self._supervisor = supervisor
+        self.dn = get_dn(self._supervisor, self.request)
+        pass
+
+    def get(self):
+        # capabilities
+        path = self.request.path.split("/")[1:]
+        if path[0] == S_CAPABILITY_PATH:
+            if (len(path) == 1 or path[1] is None):
+                self._respond_capability_links()
+            else:
+                self._respond_capability(path[1])
+        else:
+            # FIXME how do we tell tornado we don't want to handle this?
+            raise ValueError("I only know how to handle /" + S_CAPABILITY_PATH + " URLs via HTTP GET")
+
+    def _respond_capability_links(self):
+        self.set_status(200)
+        self.set_header("Content-Type", "text/html")
+        self.write("<html><head><title>Capabilities</title></head><body>")
+        for key in self._supervisor._capabilities:
+            for cap in self._supervisor._capabilities[key]:
+                if self._supervisor.ac.check_azn(cap.get_label(), self.dn):
+                    self.write("<a href='/" + S_CAPABILITY_PATH + "/" + cap.get_token() + "'>" + cap.get_label() + "</a><br/>")
+        self.write("</body></html>")
+        self.finish()
+
+    def _respond_capability(self, token):
+        for cap in self._supervisor._capabilities[self.dn]:
+            if (token == str(cap.get_token()) and
+                self._supervisor.ac.check_azn(cap.get_label(), self.dn)):
+                    self._respond_message(cap)
+
+class S_SpecificationHandler(MPlaneHandler):
+    """
+    Receives specifications from a client. If the client is
+    authorized to run the spec, this supervisor forwards it 
+    to the probe.
+
+    """
+
+    def initialize(self, supervisor):
+        self._supervisor = supervisor
+        self.dn = get_dn(self._supervisor, self.request)
+        pass
+    
+    def post(self):
+        # unwrap json message from body
+        if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
+            msg = mplane.model.parse_json(self.request.body.decode("utf-8"))
+        else:
+            raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
+
+#class CrawlParser(html.parser.HTMLParser):
+#    """
+#    HTML parser class to extract all URLS in a href attributes in
+#    an HTML page. Used to extract links to Capabilities exposed
+#    as link collections.
+#
+#    """
+#    def __init__(self, **kwargs):
+#        super(CrawlParser, self).__init__(**kwargs)
+#        self.urls = []
+#
+#    def handle_starttag(self, tag, attrs):
+#        attrs = {k: v for (k,v) in attrs}
+#        if tag == "a" and "href" in attrs:
+#            self.urls.append(attrs["href"])
 
 class HttpSupervisor(object):
     """
@@ -278,9 +349,14 @@ class HttpSupervisor(object):
                 (r"/" + REGISTRATION_PATH, RegistrationHandler, {'supervisor': self}),
                 (r"/" + SPECIFICATION_PATH, SpecificationHandler, {'supervisor': self}),
                 (r"/" + RESULT_PATH, ResultHandler, {'supervisor': self}),
+                (r"/" + S_CAPABILITY_PATH, S_CapabilityHandler, {'supervisor': self}),
+                (r"/" + S_CAPABILITY_PATH + "/.*", S_CapabilityHandler, {'supervisor': self}),
+                (r"/" + S_SPECIFICATION_PATH, S_SpecificationHandler, {'supervisor': self}),
+                #(r"/" + S_RESULT_PATH, S_ResultHandler, {'supervisor': self}),
             ])
         self._sec = not args.DISABLE_SEC    
         if self._sec == True:
+            self.ac = mplane.sec.Authorization(self._sec)
             self.base_url = "https://" + args.LISTEN_IP4 + ":" + str(args.LISTEN_PORT) + "/"
             cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
             key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
@@ -304,6 +380,10 @@ class HttpSupervisor(object):
         self._specifications = OrderedDict()
         self._receipts = OrderedDict()
         self._results = OrderedDict()
+        
+        self._label_to_ip = dict()
+        self._label_to_cap = dict()
+        self._dn_to_ip = dict()
         
     def add_result(self, msg, dn):
         """Add a receipt. Check for duplicates and if result is expected."""
@@ -340,6 +420,35 @@ class HttpSupervisor(object):
 
     def _handle_exception(self, exc):
         print(repr(exc))
+        
+    def add_ip_to_label(self, label, ip):
+        if label in self._label_to_ip:
+            self._label_to_ip[label].append(ip)
+        else:
+            self._label_to_ip[label] = [ip]
+
+    def add_cap_to_label(self, cap):
+        if cap.get_label() in self._label_to_cap:
+            self._label_to_cap[cap.get_label()].append(cap)
+        else:
+            self._label_to_cap[cap.get_label()] = [cap]
+
+    def dn_from_ip(self, ip):
+        for dn, value in self._dn_to_ip:
+            if value == ip:
+                return dn
+    
+    def aggregated_caps(self):
+        aggregated = []
+        for label in self._label_to_ip:
+            if len(self._label_to_ip[label]) > 1:
+                cap = self._label_to_cap(label)
+                cap.add_parameter("source.ip4", self._label_to_ip[label])
+                aggregated.append(cap)
+        if len(aggregated) > 0:
+            return aggregated
+        else:
+            return None              
     
 class SupervisorShell(cmd.Cmd):
 
@@ -356,7 +465,14 @@ class SupervisorShell(cmd.Cmd):
         i = 1
         for key in self._supervisor._capabilities:
             for cap in self._supervisor._capabilities[key]:
-                print(str(i) + " - " + cap.get_label() + " from " + key)
+                print(str(i) + " - " + cap.get_label() + " from " + self._supervisor._dn_to_ip[key])
+                i = i + 1
+                
+        aggregated = self._supervisor.aggregated_caps()
+        if aggregated is not None:
+            print("\nAggregated Capabilities:")
+            for cap in aggregated:
+                print(str(i) + " - " + self.show_stmt(cap))
                 i = i + 1
 
     def do_showcap(self, arg):
