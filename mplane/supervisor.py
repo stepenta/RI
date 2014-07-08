@@ -158,10 +158,11 @@ class RegistrationHandler(MPlaneHandler):
                     success = True
                 else:
                     found = False
-                    for cap in self._supervisor._capabilities[self.dn]:
-                        if str(cap.get_token()) == str(new_cap.get_token()):
-                            print("WARNING: Capability " + new_cap.get_label() + " already registered!")
-                            found = True
+                    if self.dn in self._supervisor._capabilities[self.dn]:
+                        for cap in self._supervisor._capabilities[self.dn]:
+                            if str(cap.get_token()) == str(new_cap.get_token()):
+                                print("WARNING: Capability " + new_cap.get_label() + " already registered!")
+                                found = True
                     if found is False:
                         if self.dn not in self._supervisor._capabilities:
                             self._supervisor._capabilities[self.dn] = [new_cap]
