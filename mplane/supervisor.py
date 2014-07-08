@@ -41,7 +41,7 @@ import os.path
 import argparse
 from datetime import datetime, timedelta
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '127.0.0.1'
+DEFAULT_LISTEN_IP4 = '192.168.3.193'
 
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -158,7 +158,7 @@ class RegistrationHandler(MPlaneHandler):
                     success = True
                 else:
                     found = False
-                    if self.dn in self._supervisor._capabilities[self.dn]:
+                    if self.dn in self._supervisor._capabilities:
                         for cap in self._supervisor._capabilities[self.dn]:
                             if str(cap.get_token()) == str(new_cap.get_token()):
                                 print("WARNING: Capability " + new_cap.get_label() + " already registered!")
@@ -169,6 +169,7 @@ class RegistrationHandler(MPlaneHandler):
                         else:
                             self._supervisor._capabilities[self.dn].append(new_cap)
                         self._supervisor.add_ip_to_label(new_cap.get_label(), self.request.remote_ip)
+                        self._supervisor.add_cap_to_label(new_cap)
                         self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
                         print_then_prompt("Capability " + new_cap.get_label() + " received from " + self.dn)
                         success = True
@@ -429,22 +430,30 @@ class HttpSupervisor(object):
             self._label_to_ip[label] = [ip]
 
     def add_cap_to_label(self, cap):
-        if cap.get_label() in self._label_to_cap:
-            self._label_to_cap[cap.get_label()].append(cap)
-        else:
-            self._label_to_cap[cap.get_label()] = [cap]
+        if cap.get_label() not in self._label_to_cap:
+            self._label_to_cap[cap.get_label()] = cap
 
     def dn_from_ip(self, ip):
         for dn, value in self._dn_to_ip:
             if value == ip:
                 return dn
     
+    def ip_to_string(self, ip_list):
+        ip_string = ""
+        for ip in ip_list:
+            if len(ip_string) == 0:
+                ip_string = ip
+            else:
+                ip_string = ip_string + "," + ip
+        return ip_string
+    
     def aggregated_caps(self):
         aggregated = []
         for label in self._label_to_ip:
             if len(self._label_to_ip[label]) > 1:
-                cap = self._label_to_cap(label)
-                cap.add_parameter("source.ip4", self._label_to_ip[label])
+                cap = self._label_to_cap[label]
+                ip_string = self.ip_to_string(self._label_to_ip[label])
+                cap.add_parameter("source.ip4", ip_string)
                 aggregated.append(cap)
         if len(aggregated) > 0:
             return aggregated
@@ -473,7 +482,8 @@ class SupervisorShell(cmd.Cmd):
         if aggregated is not None:
             print("\nAggregated Capabilities:")
             for cap in aggregated:
-                print(str(i) + " - " + self.show_stmt(cap))
+                print(str(i) + " ------------------------------------------------------")
+                self._show_stmt(cap)
                 i = i + 1
 
     def do_showcap(self, arg):
