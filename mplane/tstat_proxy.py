@@ -36,7 +36,7 @@ from urllib3 import HTTPConnectionPool
 import argparse
 import sys
 
-SUPERVISOR_IP4 = 'mplane.org'
+SUPERVISOR_IP4 = '192.168.3.193'
 SUPERVISOR_PORT = 8888
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -175,10 +175,10 @@ class HttpProbe():
             mplane.utils.check_file(key)
             mplane.utils.check_file(ca)
             self.pool = HTTPSConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca) 
-            self.user = "mPlane-Client"
+            #self.user = "mPlane-Client"
         else: 
             self.pool = HTTPConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT)
-            self.user = None
+            #self.user = None
                 
         self.immediate_ms = immediate_ms
         self.scheduler = mplane.scheduler.Scheduler() #(security)
@@ -237,7 +237,7 @@ class HttpProbe():
                     msg = mplane.model.parse_json(spec)
         
                     # hand message to scheduler
-                    reply = self.scheduler.receive_message(self.user, msg)
+                    reply = self.scheduler.receive_message(msg) # (self.user, msg)
                     job = self.scheduler.job_for_message(reply)
                     t = threading.Thread(target=self.return_results, args=[job])
                     t.start()
