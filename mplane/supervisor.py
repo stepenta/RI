@@ -153,7 +153,7 @@ class HttpSupervisor(object):
             if aggr_label in self._aggregated_caps:
                 self._aggregated_caps[aggr_label].add_dn(dn)
             else:
-                aggregated_cap = AggregatedCapability(cap, dn)
+                aggregated_cap = AggregatedCapability(cap, self._label_to_dn[label])
                 self._aggregated_caps[aggr_label] = aggregated_cap
         
     def add_result(self, msg, dn):
@@ -213,7 +213,7 @@ class SupervisorShell(cmd.Cmd):
         for label in self._supervisor._aggregated_caps:
             print(str(i) + " - " + label + " from:")
             for dn in self._supervisor._aggregated_caps[label].dn_list:
-                print("     " + self._supervisor._dn_to_ip[dn])
+                print("        " + self._supervisor._dn_to_ip[dn])
             i = i + 1
 
     def do_showcap(self, arg):
@@ -233,6 +233,13 @@ class SupervisorShell(cmd.Cmd):
             for label in self._supervisor._aggregated_caps:
                 if str(i) == arg:
                     self._show_stmt(self._supervisor._aggregated_caps[label].schema)
+                    ips = ""
+                    for dn in self._supervisor._aggregated_caps[label].dn_list:
+                        if ips == "":
+                            ips = self._supervisor._dn_to_ip[dn]
+                        else:
+                            ips = ips + ", " + self._supervisor._dn_to_ip[dn]
+                    print("from: " + ips + "\n")
                     return
                 i = i + 1
             print("No such capability: " + arg)
