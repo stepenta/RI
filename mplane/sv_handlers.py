@@ -23,6 +23,14 @@
 
 import tornado.web
 import mplane.model
+
+REGISTRATION_PATH = "registration"
+SPECIFICATION_PATH = "specification"
+RESULT_PATH = "result"
+S_CAPABILITY_PATH = "s_capability"
+S_AGGREGATED_CAPABILITY_PATH = "s_aggregated_capability"
+S_SPECIFICATION_PATH = "s_specification"
+S_RESULT_PATH = "s_result"
     
 def print_then_prompt(line):
     print(line)
@@ -217,10 +225,10 @@ class S_CapabilityHandler(MPlaneHandler):
         if path[0] == S_CAPABILITY_PATH:
             if (len(path) == 1 or path[1] is None):
                 self._respond_capability_links()
-            elif path[1].startswith("aggregated/"):
-                self._respond_aggregated_capability(path[1].replace("aggregated/", ""))
+            elif path[1] == "aggregated":
+                self._respond_aggregated_capability(path[2])
             else:
-                self._respond_capability(path[1])
+                self._respond_capability(path[1], path[2])
         else:
             # FIXME how do we tell tornado we don't want to handle this?
             raise ValueError("I only know how to handle /" + S_CAPABILITY_PATH + " URLs via HTTP GET")
@@ -231,37 +239,41 @@ class S_CapabilityHandler(MPlaneHandler):
         self.write("<html><head><title>Capabilities</title></head><body>")
         for key in self._supervisor._capabilities:
             for cap in self._supervisor._capabilities[key]:
-                if self._supervisor.ac.check_azn(cap.get_label(), self.dn):
-                    self.write("<a href='/" + S_CAPABILITY_PATH + "/" + cap.get_token() + "'>" + cap.get_label() + "</a><br/>")
+                cap_id = cap.get_label() + ", " + key
+                if self._supervisor.ac.check_azn(cap_id, self.dn):
+                    self.write("<a href='/" + S_CAPABILITY_PATH + "/" + key.replace(" ", "_") + "/" + cap.get_token() + "'>" + cap.get_label() + "</a><br/>")
                     
         # aggregated caps
         for label in self._supervisor._aggregated_caps:
             for dn in self._supervisor._aggregated_caps[label].dn_list:
-                cap_id = label + ", " + dn
+                lab = self._supervisor._aggregated_caps[label].schema.get_label()
+                cap_id = lab + ", " + dn
                 if self._supervisor.ac.check_azn(cap_id, self.dn):
-                    self.write("<a href='/" + S_CAPABILITY_PATH + "/aggregated/" + label + "'>" + cap.get_label() + "</a><br/>")
+                    self.write("<a href='/" + S_CAPABILITY_PATH + "/aggregated/" + label + "'>" + label + "</a><br/>")
                     break
         self.write("</body></html>")
         self.finish()
 
-    def _respond_capability(self, token):
-        for cap in self._supervisor._capabilities[self.dn]:
-            if (token == str(cap.get_token()) and
-                self._supervisor.ac.check_azn(cap.get_label(), self.dn)):
-                    self._respond_message(cap)
+    def _respond_capability(self, dn, token):
+        dn = dn.replace("_", " ")
+        for cap in self._supervisor._capabilities[dn]:
+            cap_id = cap.get_label() + ", " + dn
+            if (token == str(cap.get_token()) and self._supervisor.ac.check_azn(cap_id, self.dn)):
+                self._respond_message(cap)
 
     def _respond_aggregated_capability(self, label):
         ip_list = ""
         for dn in self._supervisor._aggregated_caps[label].dn_list:
-            cap_id = label + ", " + dn
+            cap_id = self._supervisor._aggregated_caps[label].schema.get_label() + ", " + dn
             if self._supervisor.ac.check_azn(cap_id, self.dn):
                 if ip_list == "":
-                    ip_list = self._supervisor._dn_to_ip(dn)
+                    ip_list = self._supervisor._dn_to_ip[dn]
                 else:
-                    ip_list.append("," + self._supervisor._dn_to_ip(dn))
+                    ip_list = ip_list + "," + self._supervisor._dn_to_ip[dn]
                 
         if ip_list != "":
             cap = self._supervisor._aggregated_caps[label].schema
+            cap._label = "aggregated-" + cap._label
             cap.add_parameter("source.ip4", ip_list)
             self._respond_message(cap)
 

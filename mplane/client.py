@@ -36,7 +36,7 @@ import argparse
 from datetime import datetime, timedelta
 
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = 'mplane.org'
+DEFAULT_LISTEN_IP4 = '192.168.3.193'
 CAPABILITY_PATH_ELEM = "s_capability"
 
 """

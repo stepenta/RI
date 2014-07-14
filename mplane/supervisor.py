@@ -34,7 +34,7 @@ import tornado.web
 import tornado.httpserver
 import argparse
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '127.0.0.1'
+DEFAULT_LISTEN_IP4 = '192.168.3.193'
 
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
