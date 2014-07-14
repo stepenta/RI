@@ -34,7 +34,7 @@ import tornado.web
 import tornado.httpserver
 import argparse
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '192.168.3.193'
+DEFAULT_LISTEN_IP4 = '192.168.3.197'
 
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -82,14 +82,14 @@ class AggregatedCapability(object):
     def add_dn(self, dn):
         self.dn_list.append(dn)
     
-#    def ip_to_string(self, ip_list):
-#        ip_string = ""
-#        for ip in ip_list:
-#            if len(ip_string) == 0:
-#                ip_string = ip
-#            else:
-#                ip_string = ip_string + "," + ip
-#        return ip_string
+    def ip_to_string(self, dn_to_ip):
+        ip_string = ""
+        for dn in self.dn_list:
+            if len(ip_string) == 0:
+                ip_string = dn_to_ip[dn]
+            else:
+                ip_string = ip_string + "," + dn_to_ip[dn]
+        return ip_string
 
 class HttpSupervisor(object):
     """
@@ -250,6 +250,13 @@ class SupervisorShell(cmd.Cmd):
                     self._show_stmt(cap)
             for label in self._supervisor._aggregated_caps:
                 self._show_stmt(self._supervisor._aggregated_caps[label].schema)
+                ips = ""
+                for dn in self._supervisor._aggregated_caps[label].dn_list:
+                    if ips == "":
+                        ips = self._supervisor._dn_to_ip[dn]
+                    else:
+                        ips = ips + ", " + self._supervisor._dn_to_ip[dn]
+                print("from: " + ips + "\n")
 
     def do_listmeas(self, arg):
         """List running/completed measurements by index"""
@@ -314,7 +321,8 @@ class SupervisorShell(cmd.Cmd):
                 i = i + 1
         for label in self._supervisor._aggregated_caps:
             if str(i) == arg:
-                
+                ips = self._supervisor._aggregated_caps[label].ip_to_string(self._supervisor._dn_to_ip)
+                self._supervisor._aggregated_caps[label].schema.add_parameter("ip4.source", ips)
                 self._show_stmt(self._supervisor._aggregated_caps[label].schema)
                 return
             i = i + 1
