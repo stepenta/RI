@@ -34,12 +34,13 @@ import tornado.web
 import tornado.httpserver
 import argparse
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '192.168.3.197'
+DEFAULT_LISTEN_IP4 = '127.0.0.1'
 
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
 RESULT_PATH = "result"
 S_CAPABILITY_PATH = "s_capability"
+S_AGGREGATED_CAPABILITY_PATH = "s_aggregated_capability"
 S_SPECIFICATION_PATH = "s_specification"
 S_RESULT_PATH = "s_result"
 
@@ -321,8 +322,8 @@ class SupervisorShell(cmd.Cmd):
                 i = i + 1
         for label in self._supervisor._aggregated_caps:
             if str(i) == arg:
-                ips = self._supervisor._aggregated_caps[label].ip_to_string(self._supervisor._dn_to_ip)
-                self._supervisor._aggregated_caps[label].schema.add_parameter("ip4.source", ips)
+                ip_list = self._supervisor._aggregated_caps[label].ip_to_string(self._supervisor._dn_to_ip)
+                self._supervisor._aggregated_caps[label].schema.add_parameter("source.ip4", ip_list)
                 self._show_stmt(self._supervisor._aggregated_caps[label].schema)
                 return
             i = i + 1

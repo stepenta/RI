@@ -217,6 +217,8 @@ class S_CapabilityHandler(MPlaneHandler):
         if path[0] == S_CAPABILITY_PATH:
             if (len(path) == 1 or path[1] is None):
                 self._respond_capability_links()
+            elif path[1].startswith("aggregated/"):
+                self._respond_aggregated_capability(path[1].replace("aggregated/", ""))
             else:
                 self._respond_capability(path[1])
         else:
@@ -231,6 +233,14 @@ class S_CapabilityHandler(MPlaneHandler):
             for cap in self._supervisor._capabilities[key]:
                 if self._supervisor.ac.check_azn(cap.get_label(), self.dn):
                     self.write("<a href='/" + S_CAPABILITY_PATH + "/" + cap.get_token() + "'>" + cap.get_label() + "</a><br/>")
+                    
+        # aggregated caps
+        for label in self._supervisor._aggregated_caps:
+            for dn in self._supervisor._aggregated_caps[label].dn_list:
+                cap_id = label + ", " + dn
+                if self._supervisor.ac.check_azn(cap_id, self.dn):
+                    self.write("<a href='/" + S_CAPABILITY_PATH + "/aggregated/" + label + "'>" + cap.get_label() + "</a><br/>")
+                    break
         self.write("</body></html>")
         self.finish()
 
@@ -239,6 +249,21 @@ class S_CapabilityHandler(MPlaneHandler):
             if (token == str(cap.get_token()) and
                 self._supervisor.ac.check_azn(cap.get_label(), self.dn)):
                     self._respond_message(cap)
+
+    def _respond_aggregated_capability(self, label):
+        ip_list = ""
+        for dn in self._supervisor._aggregated_caps[label].dn_list:
+            cap_id = label + ", " + dn
+            if self._supervisor.ac.check_azn(cap_id, self.dn):
+                if ip_list == "":
+                    ip_list = self._supervisor._dn_to_ip(dn)
+                else:
+                    ip_list.append("," + self._supervisor._dn_to_ip(dn))
+                
+        if ip_list != "":
+            cap = self._supervisor._aggregated_caps[label].schema
+            cap.add_parameter("source.ip4", ip_list)
+            self._respond_message(cap)
 
 class S_SpecificationHandler(MPlaneHandler):
     """
