@@ -239,18 +239,28 @@ class S_CapabilityHandler(MPlaneHandler):
         self.write("<html><head><title>Capabilities</title></head><body>")
         for key in self._supervisor._capabilities:
             for cap in self._supervisor._capabilities[key]:
-                cap_id = cap.get_label() + ", " + key
-                if self._supervisor.ac.check_azn(cap_id, self.dn):
-                    self.write("<a href='/" + S_CAPABILITY_PATH + "/" + key.replace(" ", "_") + "/" + cap.get_token() + "'>" + cap.get_label() + "</a><br/>")
+                aggr-label = "aggregated-" + cap.get_label()
+                if aggr-label not in self._supervisor._aggregated_caps:
+                    cap_id = cap.get_label() + ", " + key
+                    if self._supervisor.ac.check_azn(cap_id, self.dn):
+                        self.write("<a href='/" + S_CAPABILITY_PATH + "/" + key.replace(" ", "_") + "/" + cap.get_token() + "'>" + cap.get_label() + "</a><br/>")
                     
         # aggregated caps
         for label in self._supervisor._aggregated_caps:
+            azn_list = []
             for dn in self._supervisor._aggregated_caps[label].dn_list:
                 lab = self._supervisor._aggregated_caps[label].schema.get_label()
                 cap_id = lab + ", " + dn
                 if self._supervisor.ac.check_azn(cap_id, self.dn):
-                    self.write("<a href='/" + S_CAPABILITY_PATH + "/aggregated/" + label + "'>" + label + "</a><br/>")
-                    break
+                    azn_list.append(dn)
+                    if len(azn_list) >= 2:
+                        # more than 2 source IPs, aggregation makes sense
+                        self.write("<a href='/" + S_CAPABILITY_PATH + "/" + label + "'>" + label + "</a><br/>")
+                        break
+            if len(azn_list) == 1:
+                # at least one source IP, exposing single capability
+                cap_schema = self._supervisor._aggregated_caps[label].schema
+                self.write("<a href='/" + S_CAPABILITY_PATH + "/" + azn_list[0].replace(" ", "_") + "/" + cap_schema.get_token() + "'>" + cap_schema.get_label() + "</a><br/>")
         self.write("</body></html>")
         self.finish()
 
@@ -294,5 +304,38 @@ class S_SpecificationHandler(MPlaneHandler):
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             msg = mplane.model.parse_json(self.request.body.decode("utf-8"))
+            if isinstance(msg, mplane.model.Specification):
+                if msg.get_label().startswith("aggregated"):
+                    print_then_prompt("Aggregated cap received!")
+                else:
+                    if selfdn not in self._supervisor._specifications:
+                        self._supervisor._specifications[dn] = [spec]
+                    else:
+                        # Check for concurrent specifications
+                        for spec in self._supervisor._specifications[dn]:
+                            if spec.fulfills(cap):
+                                print("There is already a Specification for this Capability. Try again later")
+                                return 
+                        self._supervisor._specifications[dn].append(spec)
         else:
             raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
+            
