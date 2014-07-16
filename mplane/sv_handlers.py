@@ -241,7 +241,6 @@ class S_CapabilityHandler(MPlaneHandler):
             for cap in self._supervisor._capabilities[key]:
                 aggr_label = "aggregated-" + cap.get_label()
                 if aggr_label not in self._supervisor._aggregated_caps:
-                    print("cap singola")
                     cap_id = cap.get_label() + ", " + key
                     if self._supervisor.ac.check_azn(cap_id, self.dn):
                         self.write("<a href='/" + S_CAPABILITY_PATH + "/" + key.replace(" ", "_") + "/" + cap.get_token() + "'>" + cap.get_label() + "</a><br/>")
@@ -254,14 +253,11 @@ class S_CapabilityHandler(MPlaneHandler):
                 cap_id = lab + ", " + dn
                 if self._supervisor.ac.check_azn(cap_id, self.dn):
                     azn_list.append(dn)
-                    print("azn_list = " + str(azn_list))
                     if len(azn_list) >= 2:
-                        print("cap aggregata")
                         # more than 2 source IPs, aggregation makes sense
                         self.write("<a href='/" + S_CAPABILITY_PATH + "/" + label + "'>" + label + "</a><br/>")
                         break
             if len(azn_list) == 1:
-                print("cap singola dopo aggregata")
                 # at least one source IP, exposing single capability
                 cap_schema = self._supervisor._aggregated_caps[label].schema
                 self.write("<a href='/" + S_CAPABILITY_PATH + "/" + azn_list[0].replace(" ", "_") + "/" + cap_schema.get_token() + "'>" + cap_schema.get_label() + "</a><br/>")
