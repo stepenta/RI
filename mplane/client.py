@@ -36,8 +36,10 @@ import argparse
 from datetime import datetime, timedelta
 
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '192.168.3.193'
+DEFAULT_LISTEN_IP4 = '192.168.3.197'
 CAPABILITY_PATH_ELEM = "s_capability"
+S_SPECIFICATION_PATH = "s_specification"
+S_RESULT_PATH = "s_result"
 
 """
 Generic mPlane client for HTTP component-push workflows.
@@ -100,7 +102,7 @@ class HttpClient(object):
         self._receipts = []
         self._results = []
 
-    def get_mplane_reply(self, url=None, postmsg=None):
+    def get_mplane_reply(self, url, postmsg=None):
         """
         Given a URL, parses the object at the URL as an mPlane 
         message and processes it.
@@ -111,8 +113,6 @@ class HttpClient(object):
         """
         if postmsg is not None:
             print(postmsg)
-            if url is None:
-                url = "/"
             res = self.pool.urlopen('POST', url, 
                     body=mplane.model.unparse_json(postmsg).encode("utf-8"), 
                     headers={"content-type": "application/x-mplane+json"})
@@ -183,7 +183,7 @@ class HttpClient(object):
             parser.feed(res.data.decode("utf-8"))
             parser.close()
             for capurl in parser.urls:
-                self.handle_message(self.get_mplane_reply(url=capurl))
+                self.handle_message(self.get_mplane_reply(capurl))
         else:
             print(listurl+": "+str(res.status))
        
@@ -197,7 +197,8 @@ class HttpClient(object):
             self._receipts.append(msg)
 
     def redeem_receipt(self, msg):
-        self.handle_message(self.get_mplane_reply(postmsg=mplane.model.Redemption(receipt=msg)))
+        print(msg.get_label())
+        self.handle_message(self.get_mplane_reply("/"+S_RESULT_PATH, mplane.model.Redemption(receipt=msg)))
 
     def redeem_receipts(self):
         """
@@ -386,7 +387,7 @@ class ClientShell(cmd.Cmd):
         spec.validate()
 
         # And send it to the server
-        self._client.handle_message(self._client.get_mplane_reply(postmsg=spec))
+        self._client.handle_message(self._client.get_mplane_reply("/"+S_SPECIFICATION_PATH, spec))
         print("ok")
 
     def do_redeem(self, arg):

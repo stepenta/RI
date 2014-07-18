@@ -23,6 +23,7 @@
 
 import tornado.web
 import mplane.model
+import copy
 
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -49,6 +50,7 @@ def get_dn(supervisor, request):
         dn = "org.mplane.Test PKI.Test Clients.mPlane-Client"
     supervisor._dn_to_ip[dn] = request.remote_ip
     return dn
+
     
 class MPlaneHandler(tornado.web.RequestHandler):
     """
@@ -282,9 +284,10 @@ class S_CapabilityHandler(MPlaneHandler):
                     ip_list = ip_list + "," + self._supervisor._dn_to_ip[dn]
                 
         if ip_list != "":
-            cap = self._supervisor._aggregated_caps[label].schema
+            cap = copy.deepcopy(self._supervisor._aggregated_caps[label].schema)
             cap._label = label
-            cap.add_parameter("source.ip4", ip_list)
+            cap.add_parameter("list.ip4", ip_list)
+            cap.add_result_column("subnet.ip4")
             self._respond_message(cap)
 
 class S_SpecificationHandler(MPlaneHandler):
@@ -303,39 +306,93 @@ class S_SpecificationHandler(MPlaneHandler):
     def post(self):
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
-            msg = mplane.model.parse_json(self.request.body.decode("utf-8"))
-            if isinstance(msg, mplane.model.Specification):
-                if msg.get_label().startswith("aggregated"):
-                    print_then_prompt("Aggregated cap received!")
-                else:
-                    if selfdn not in self._supervisor._specifications:
-                        self._supervisor._specifications[dn] = [spec]
+            spec = mplane.model.parse_json(self.request.body.decode("utf-8"))
+            if isinstance(spec, mplane.model.Specification):
+                if spec.get_label().startswith("aggregated"):
+                    if spec.get_label() in self._supervisor._aggregated_meas:
+                        self.set_status(403)
+                        self.set_header("Content-Type", "text/plain")
+                        self.write("Result unexpected")
+                        self.finish()
                     else:
-                        # Check for concurrent specifications
-                        for spec in self._supervisor._specifications[dn]:
-                            if spec.fulfills(cap):
-                                print("There is already a Specification for this Capability. Try again later")
-                                return 
-                        self._supervisor._specifications[dn].append(spec)
+                        ip_list = str(spec.get_parameter_value("list.ip4")).split(",")
+                        spec.remove_parameter("list.ip4")   
+                        dn_list = []
+                        for ip in ip_list:
+                            dn = self._supervisor.dn_from_ip(ip)
+                            if dn is not None:
+                                dn_list.append(dn) 
+                        self._supervisor._aggregated_meas[spec.get_label()] = []       
+                        for dn in dn_list:
+                            self._supervisor.add_spec(spec, dn)
+                            self._supervisor._aggregated_meas[spec.get_label()].append(dn)
+                else:
+                    dn = self.find_dn(spec.get_label())
+                    self._supervisor.add_spec(spec, dn)
+            self._respond_message(mplane.model.Receipt(specification=spec))
         else:
-            raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
-            
+            raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")        
+        
+    def find_dn(self, label):
+        for dn in self._supervisor._label_to_dn[label]:
+            cap_id = label + ", " + dn
+            if self._supervisor.ac.check_azn(cap_id, self.dn):
+                return dn
+        if dn is None:
+            raise Error("Specification " + label + " doesn't match any DN")
+
+class S_ResultHandler(MPlaneHandler):
+    """
+    Receives receipts from a client. If the corresponding result
+    is ready, this supervisor sends it to the probe.
+
+    """
+
+    def initialize(self, supervisor):
+        self._supervisor = supervisor
+        self.dn = get_dn(self._supervisor, self.request)
+        pass
+    
+    def post(self):
+        # unwrap json message from body
+        if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
+            rec = mplane.model.parse_json(self.request.body.decode("utf-8"))
+            if isinstance(rec, mplane.model.Redemption):
+                print(mplane.model.unparse_yaml(rec))
+                if rec.has_result_column("subnet.ip4"):
+                    print("requested token = " + rec.get_token)
+                    for label in self._supervisor._aggregated_caps:
+                        print("aggr token = " + self._supervisor._aggregated_caps[label].get_token())
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

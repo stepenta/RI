@@ -34,7 +34,7 @@ import tornado.web
 import tornado.httpserver
 import argparse
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '192.168.3.193'
+DEFAULT_LISTEN_IP4 = '192.168.3.197'
 
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -111,7 +111,7 @@ class HttpSupervisor(object):
                 (r"/" + S_CAPABILITY_PATH, mplane.sv_handlers.S_CapabilityHandler, {'supervisor': self}),
                 (r"/" + S_CAPABILITY_PATH + "/.*", mplane.sv_handlers.S_CapabilityHandler, {'supervisor': self}),
                 (r"/" + S_SPECIFICATION_PATH, mplane.sv_handlers.S_SpecificationHandler, {'supervisor': self}),
-                #(r"/" + S_RESULT_PATH, mplane.sv_handlers.S_ResultHandler, {'supervisor': self}),
+                (r"/" + S_RESULT_PATH, mplane.sv_handlers.S_ResultHandler, {'supervisor': self}),
             ])
         self._sec = not args.DISABLE_SEC    
         if self._sec == True:
@@ -140,6 +140,8 @@ class HttpSupervisor(object):
         self._specifications = OrderedDict()
         self._receipts = OrderedDict()
         self._results = OrderedDict()
+        self._aggregated_meas = dict()
+        self._aggregated_res = dict()
         self._dn_to_ip = dict()
         # labels of stored capabilities, associated to DNs. For aggregation purposes
         self._label_to_dn = dict()
@@ -158,7 +160,7 @@ class HttpSupervisor(object):
                 self._aggregated_caps[aggr_label] = aggregated_cap
         
     def add_result(self, msg, dn):
-        """Add a receipt. Check for duplicates and if result is expected."""
+        """Add a result. Check for duplicates and if result is expected."""
         if dn in self._receipts:
             for receipt in self._receipts[dn]:
                 if str(receipt.get_token()) == str(msg.get_token()):
@@ -169,8 +171,33 @@ class HttpSupervisor(object):
                     
                     self._receipts[dn].remove(receipt)
                     return True
+        aggr_label = "aggregated-" + msg.get_label()
+        if aggr_label in self._aggregated_meas:
+            if dn in self._aggregated_meas[aggr_label]:
+                self._aggregated_meas[aggr_label].remove(dn)
+                if aggr_label not in self._aggregated_res:
+                    self._aggregated_res[aggr_label] = []
+                self._aggregated_res[aggr_label].append(msg)
+                return True
+                
         print("WARNING: Received an unexpected Result!")
         return False
+        
+    def add_spec(self, spec, dn):
+        if dn not in self._specifications:
+            self._specifications[dn] = [spec]
+        else:
+            # Check for concurrent specifications
+            for prev_spec in self._specifications[dn]:
+                if spec.fulfills(prev_spec):
+                    print("There is already a Specification for this Capability. Try again later")
+                    return 
+            self._specifications[dn].append(spec)
+            
+    def dn_from_ip(self, ip):
+        for dn in self._dn_to_ip:
+            if ip == self._dn_to_ip[dn]:
+                return dn
 
     def measurements(self):
         """Iterate over all measurements (receipts and results)"""
@@ -323,7 +350,7 @@ class SupervisorShell(cmd.Cmd):
         for label in self._supervisor._aggregated_caps:
             if str(i) == arg:
                 ip_list = self._supervisor._aggregated_caps[label].ip_to_string(self._supervisor._dn_to_ip)
-                self._supervisor._aggregated_caps[label].schema.add_parameter("source.ip4", ip_list)
+                self._supervisor._aggregated_caps[label].schema.add_parameter("list.ip4", ip_list)
                 self._show_stmt(self._supervisor._aggregated_caps[label].schema)
                 return
             i = i + 1
@@ -363,17 +390,7 @@ class SupervisorShell(cmd.Cmd):
         spec.validate()
 
         # And send it to the server
-        
-        if dn not in self._supervisor._specifications:
-            self._supervisor._specifications[dn] = [spec]
-        else:
-            # Check for concurrent specifications
-            for spec in self._supervisor._specifications[dn]:
-                if spec.fulfills(cap):
-                    print("There is already a Specification for this Capability. Try again later")
-                    return 
-            self._supervisor._specifications[dn].append(spec)
-        print("ok")
+        self._supervisor.add_spec(spec, dn)
         
     def do_show(self, arg):
         """Show a default parameter value, or all values if no parameter name given"""

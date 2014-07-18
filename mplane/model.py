@@ -1483,7 +1483,13 @@ class SetConstraint(Constraint):
 
     def met_by(self, val):
         """Determine if the value is a mamber of the set"""
-        return val in self.vs
+        if val.find(SET_SEP) > 0:
+            for v in val.split(SET_SEP):
+                if v not in self.vs:
+                    return False
+            return True
+        else:
+            return val in self.vs
 
     def single_value(self):
         """If this constraint only allows a single value, return it. Otherwise, return None."""
@@ -1740,6 +1746,14 @@ class Statement(object):
         self._params[elem_name] = Parameter(element(elem_name), 
                                   constraint=constraint,
                                   val = val)
+    
+    def remove_parameter(self, elem_name):
+        """
+        Remove a parameter from this statement.
+        If the parameter doesn't exist, nothing happens
+        """
+        if elem_name in self._params:
+            del self._params[elem_name]
 
     def has_parameter(self, elem_name):
         """Return True if the statement has a parameter with the given name"""
