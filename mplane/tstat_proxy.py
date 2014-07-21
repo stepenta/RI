@@ -36,7 +36,7 @@ from urllib3 import HTTPConnectionPool
 import argparse
 import sys
 
-SUPERVISOR_IP4 = '192.168.3.193'
+SUPERVISOR_IP4 = '192.168.3.197'
 SUPERVISOR_PORT = 8888
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -117,6 +117,24 @@ class tStatService(mplane.scheduler.Service):
         # put actual start and end time into result
         res.set_when(mplane.model.When(a = start, b = end))
         
+        # fill result columns with DUMMY values
+        for column_name in res.result_column_names():
+            prim = res._resultcolumns[column_name].primitive_name()
+            if prim == "natural":
+                res.set_result_value(column_name, 0)
+            elif prim == "string":
+                res.set_result_value(column_name, "hello")
+            elif prim == "real":
+                res.set_result_value(column_name, 0.0)
+            elif prim == "boolean":
+                res.set_result_value(column_name, True)
+            elif prim == "time":
+                res.set_result_value(column_name, start)
+            elif prim == "address":
+                res.set_result_value(column_name, SUPERVISOR_IP4)
+            elif prim == "url":
+                res.set_result_value(column_name, "www.google.com")
+        
         return res
 
     def run(self, spec, check_interrupt):
@@ -183,7 +201,7 @@ class HttpProbe():
         self.immediate_ms = immediate_ms
         self.scheduler = mplane.scheduler.Scheduler() #(security)
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
-        self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
+        #self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(), args.TSTAT_RUNTIMECONF))

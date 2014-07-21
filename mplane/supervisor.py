@@ -141,7 +141,6 @@ class HttpSupervisor(object):
         self._receipts = OrderedDict()
         self._results = OrderedDict()
         self._aggregated_meas = dict()
-        self._aggregated_res = dict()
         self._dn_to_ip = dict()
         # labels of stored capabilities, associated to DNs. For aggregation purposes
         self._label_to_dn = dict()
@@ -171,14 +170,6 @@ class HttpSupervisor(object):
                     
                     self._receipts[dn].remove(receipt)
                     return True
-        aggr_label = "aggregated-" + msg.get_label()
-        if aggr_label in self._aggregated_meas:
-            if dn in self._aggregated_meas[aggr_label]:
-                self._aggregated_meas[aggr_label].remove(dn)
-                if aggr_label not in self._aggregated_res:
-                    self._aggregated_res[aggr_label] = []
-                self._aggregated_res[aggr_label].append(msg)
-                return True
                 
         print("WARNING: Received an unexpected Result!")
         return False

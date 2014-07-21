@@ -48,7 +48,6 @@ def get_dn(supervisor, request):
                 dn = dn + "." + str(elem[0][1])
     else:
         dn = "org.mplane.Test PKI.Test Clients.mPlane-Client"
-    supervisor._dn_to_ip[dn] = request.remote_ip
     return dn
 
     
@@ -90,6 +89,7 @@ class RegistrationHandler(MPlaneHandler):
     def initialize(self, supervisor):
         self._supervisor = supervisor
         self.dn = get_dn(self._supervisor, self.request)
+        self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
         
 
     def post(self):
@@ -154,6 +154,7 @@ class SpecificationHandler(MPlaneHandler):
     def initialize(self, supervisor):
         self._supervisor = supervisor
         self.dn = get_dn(self._supervisor, self.request)
+        self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
 
     def get(self):
         specs = self._supervisor._specifications.pop(self.dn, [])
@@ -182,7 +183,7 @@ class ResultHandler(MPlaneHandler):
     def initialize(self, supervisor):
         self._supervisor = supervisor
         self.dn = get_dn(self._supervisor, self.request)
-        pass
+        self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
 
     def post(self):
         # unwrap json message from body
@@ -219,7 +220,6 @@ class S_CapabilityHandler(MPlaneHandler):
     def initialize(self, supervisor):
         self._supervisor = supervisor
         self.dn = get_dn(self._supervisor, self.request)
-        pass
 
     def get(self):
         # capabilities
@@ -301,35 +301,38 @@ class S_SpecificationHandler(MPlaneHandler):
     def initialize(self, supervisor):
         self._supervisor = supervisor
         self.dn = get_dn(self._supervisor, self.request)
-        pass
     
     def post(self):
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             spec = mplane.model.parse_json(self.request.body.decode("utf-8"))
+            receipt = mplane.model.Receipt(specification=spec)
+            res = mplane.model.Result(specification=spec)
             if isinstance(spec, mplane.model.Specification):
                 if spec.get_label().startswith("aggregated"):
-                    if spec.get_label() in self._supervisor._aggregated_meas:
+                    if spec.get_label() not in self._supervisor._aggregated_caps:
                         self.set_status(403)
                         self.set_header("Content-Type", "text/plain")
-                        self.write("Result unexpected")
+                        self.write("This aggregated measure is not available")
                         self.finish()
+                        return
                     else:
                         ip_list = str(spec.get_parameter_value("list.ip4")).split(",")
-                        spec.remove_parameter("list.ip4")   
+                        spec.remove_parameter("list.ip4") 
+                        spec.remove_result_column("subnet.ip4")
+                        spec._label = spec.get_label().replace("aggregated-", "")
                         dn_list = []
                         for ip in ip_list:
-                            dn = self._supervisor.dn_from_ip(ip)
-                            if dn is not None:
-                                dn_list.append(dn) 
-                        self._supervisor._aggregated_meas[spec.get_label()] = []       
-                        for dn in dn_list:
-                            self._supervisor.add_spec(spec, dn)
-                            self._supervisor._aggregated_meas[spec.get_label()].append(dn)
+                            probe_dn = self._supervisor.dn_from_ip(ip)
+                            if probe_dn is not None:
+                                dn_list.append(probe_dn) 
+                        self._supervisor._aggregated_meas[receipt.get_token()] = [spec.get_label(), dn_list, res]     
+                        for probe_dn in dn_list:
+                            self._supervisor.add_spec(spec, probe_dn)
                 else:
                     dn = self.find_dn(spec.get_label())
                     self._supervisor.add_spec(spec, dn)
-            self._respond_message(mplane.model.Receipt(specification=spec))
+            self._respond_message(receipt)
         else:
             raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")        
         
@@ -351,48 +354,37 @@ class S_ResultHandler(MPlaneHandler):
     def initialize(self, supervisor):
         self._supervisor = supervisor
         self.dn = get_dn(self._supervisor, self.request)
-        pass
     
     def post(self):
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             rec = mplane.model.parse_json(self.request.body.decode("utf-8"))
             if isinstance(rec, mplane.model.Redemption):
-                print(mplane.model.unparse_yaml(rec))
                 if rec.has_result_column("subnet.ip4"):
-                    print("requested token = " + rec.get_token)
-                    for label in self._supervisor._aggregated_caps:
-                        print("aggr token = " + self._supervisor._aggregated_caps[label].get_token())
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                    label = self._supervisor._aggregated_meas[rec.get_token()][0]
+                    dn_list = self._supervisor._aggregated_meas[rec.get_token()][1]
+                    aggregated_res = self._supervisor._aggregated_meas[rec.get_token()][2]
+                    #print("original when = " + str(rec.when()))
+                    #aggregated_res.set_when(rec.when())
+                    for i, dn in enumerate(dn_list):
+                        single_res = None
+                        for r in self._supervisor._results[dn]:
+                            if r.get_label() == label:
+                                single_res = r
+                        if single_res == None:
+                            raise ValueError("Error in aggregated results")
+                        
+                        for result_column in aggregated_res.result_column_names():
+                            if result_column == "subnet.ip4":
+                                aggregated_res.set_result_value("subnet.ip4", self._supervisor._dn_to_ip[dn], i)
+                            else:
+                                aggregated_res.set_result_value(result_column, single_res.get_result_value(result_column), i)
+                        if not aggregated_res.when().is_definite():
+                            aggregated_res.set_when(single_res.when())
+                    print(mplane.model.unparse_yaml(aggregated_res))
+                    self._respond_message(aggregated_res)
+                else:
+                    for dn in self._supervisor._results:
+                        for r in self._supervisor._results[dn]:
+                            if str(r.get_token()) == str(rec.get_token()):
+                                self._respond_message(r)
