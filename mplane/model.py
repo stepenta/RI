@@ -1649,6 +1649,9 @@ class ResultColumn(Element):
 
     def __getitem__(self, key):
         return self._vals[key]
+        
+    def get_value(self):
+        return self._vals
 
     def __setitem__(self, key, val):
         # Automatically parse strings
@@ -1812,6 +1815,10 @@ class Statement(object):
         """Programatically add a result column to this Statement."""
         self._resultcolumns[elem_name] = ResultColumn(element(elem_name))
 
+    def remove_result_column(self, elem_name):
+        """Remove a result column from this Statement."""
+        self._resultcolumns.popitem(elem_name)
+
     def has_result_column(self, elem_name):
         return elem_name in self._resultcolumns
 
@@ -1822,6 +1829,10 @@ class Statement(object):
     def count_result_columns(self):
         """Return the number of result columns in this Statement"""
         return len(self._resultcolumns)
+
+    def get_result_value(self, elem_name):
+        """Return the value for a named result on this Statement."""
+        return self._resultcolumns[elem_name].get_value()
 
     def count_result_rows(self):
         """Return the number of result rows in this Statement"""
