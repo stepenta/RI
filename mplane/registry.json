@@ -868,12 +868,12 @@
       "prim": "string"
     },
     {
-      "name": "list.ip4",
-      "prim": "string"
+      "name": "subnet.ip4",
+      "prim": "address"
     },
     {
-      "name": "subnet.ip4",
-      "prim": "string"
+      "name": "subnet.netmask",
+      "prim": "natural"
     }
   ]
 }

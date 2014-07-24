@@ -1,4 +1,3 @@
-#
 # mPlane Protocol Reference Implementation
 # Authorization APIs
 #

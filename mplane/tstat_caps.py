@@ -1,5 +1,5 @@
 # mPlane Protocol Reference Implementation
-# tStat component code
+# tStat capabilities
 #
 # (c) 2013-2014 mPlane Consortium (http://www.ict-mplane.eu)
 #               Author: Stefano Pentassuglia
@@ -19,8 +19,11 @@
 
 import mplane.model
 
-def tcp_flows_capability():
+def tcp_flows_capability(net_address):
     cap = mplane.model.Capability(label="tstat-log_tcp_complete-core", when = "now + inf ... future")
+    slash = net_address.find("/")
+    cap.add_parameter("subnet.ip4", net_address[:slash])
+    cap.add_parameter("subnet.netmask", net_address[slash+1:])
     cap.add_result_column("initiator.ip4")
     cap.add_result_column("initiator.port")
     cap.add_result_column("packets.forward")
@@ -67,8 +70,11 @@ def tcp_flows_capability():
     cap.add_result_column("tstat.flow.class.http")
     return cap
 
-def e2e_tcp_flows_capability():
+def e2e_tcp_flows_capability(net_address):
     cap = mplane.model.Capability(label="tstat-log_tcp_complete-end_to_end", when = "now + inf ... future")
+    slash = net_address.find("/")
+    cap.add_parameter("subnet.ip4", net_address[:slash])
+    cap.add_parameter("subnet.netmask", net_address[slash+1:])
     cap.add_result_column("rtt.average.ms")
     cap.add_result_column("rtt.min.ms")
     cap.add_result_column("rtt.max.ms")
@@ -78,8 +84,11 @@ def e2e_tcp_flows_capability():
     cap.add_result_column("ttl.max")
     return cap
     
-def tcp_options_capability():
+def tcp_options_capability(net_address):
     cap = mplane.model.Capability(label="tstat-log_tcp_complete-tcp_options", when = "now + inf ... future")
+    slash = net_address.find("/")
+    cap.add_parameter("subnet.ip4", net_address[:slash])
+    cap.add_parameter("subnet.netmask", net_address[slash+1:])
     cap.add_result_column("initiator.RFC1323.ws")
     cap.add_result_column("initiator.RFC1323.ts")
     cap.add_result_column("initiator.win_scale")
@@ -129,8 +138,11 @@ def tcp_options_capability():
     cap.add_result_column("responder.SYN.equal_seqno")
     return cap
     
-def tcp_p2p_stats_capability():
+def tcp_p2p_stats_capability(net_address):
     cap = mplane.model.Capability(label="tstat-log_tcp_complete-p2p_stats", when = "now + inf ... future")
+    slash = net_address.find("/")
+    cap.add_parameter("subnet.ip4", net_address[:slash])
+    cap.add_parameter("subnet.netmask", net_address[slash+1:])
     cap.add_result_column("p2p.subtype")
     cap.add_result_column("ed2k.data")
     cap.add_result_column("ed2k.signaling")
@@ -139,8 +151,11 @@ def tcp_p2p_stats_capability():
     cap.add_result_column("ed2k.chat")
     return cap    
 
-def tcp_layer7_capability():
+def tcp_layer7_capability(net_address):
     cap = mplane.model.Capability(label="tstat-log_tcp_complete-layer7", when = "now + inf ... future")
+    slash = net_address.find("/")
+    cap.add_parameter("subnet.ip4", net_address[:slash])
+    cap.add_parameter("subnet.netmask", net_address[slash+1:])
     cap.add_result_column("initiator.psh_separated")
     cap.add_result_column("responder.psh_separated")
     cap.add_result_column("ssl.hello.client")

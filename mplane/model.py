@@ -1,6 +1,3 @@
-#
-# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
-#
 # mPlane Protocol Reference Implementation
 # Information Model and Element Registry
 #
@@ -1585,7 +1582,7 @@ class Parameter(Element):
         if isinstance(val, str):
             val = self._prim.parse(val)
 
-        if (val is None) or self._constraint.met_by(val):
+        if (val is None) or self._constraint.met_by(val.replace(" ", "")):
             self._val = val
         else:
             raise ValueError(repr(self) + " cannot take value " + repr(val))

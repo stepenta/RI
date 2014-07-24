@@ -35,9 +35,11 @@ from urllib3 import HTTPSConnectionPool
 from urllib3 import HTTPConnectionPool
 import argparse
 import sys
+import re
 
-SUPERVISOR_IP4 = '192.168.3.197'
-SUPERVISOR_PORT = 8888
+DEFAULT_IP4_NET = "192.168.4.0/24"
+DEFAULT_SUPERVISOR_IP4 = '192.168.3.197'
+DEFAULT_SUPERVISOR_PORT = 8888
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
 RESULT_PATH = "result"
@@ -131,7 +133,7 @@ class tStatService(mplane.scheduler.Service):
             elif prim == "time":
                 res.set_result_value(column_name, start)
             elif prim == "address":
-                res.set_result_value(column_name, SUPERVISOR_IP4)
+                res.set_result_value(column_name, args.SUPERVISOR_IP4)
             elif prim == "url":
                 res.set_result_value(column_name, "www.google.com")
         
@@ -159,6 +161,12 @@ class tStatService(mplane.scheduler.Service):
 def parse_args():
     global args
     parser = argparse.ArgumentParser(description='run a Tstat mPlane proxy')
+    parser.add_argument('-n', '--net-address', metavar='net-address', default=DEFAULT_IP4_NET, dest='IP4_NET',
+                        help='Subnet address/Netmask of this probe')
+    parser.add_argument('-d', '--supervisor-ip4', metavar='supervisor-ip4', default=DEFAULT_SUPERVISOR_IP4, dest='SUPERVISOR_IP4',
+                        help='Supervisor IP address')
+    parser.add_argument('-p', '--supervisor-port', metavar='supervisor-port', default=DEFAULT_SUPERVISOR_PORT, dest='SUPERVISOR_PORT',
+                        help='Supervisor port number')
     parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
                         help='Disable secure communication')
     parser.add_argument('-c', '--certfile', metavar="path", dest='CERTFILE', default = None,
@@ -167,13 +175,40 @@ def parse_args():
                         help = 'Tstat runtime.conf configuration file path')
     args = parser.parse_args()
 
+
+    net_pattern = re.compile("^\d{1,3}[.]\d{1,3}[.]\d{1,3}[.]\d{1,3}[/]\d{1,2}$")
+    if not net_pattern.match(args.IP4_NET):
+        print('\nERROR: Invalid network address format. The format must be: x.x.x.x/n\n')
+        parser.print_help()
+        sys.exit(1)
+    else:
+        slash = args.IP4_NET.find("/")
+        if slash > 0:
+            netmask = int(args.IP4_NET[slash+1:])
+            if (netmask < 8 or netmask > 24):
+                print('\nERROR: Invalid netmask. It must be a number between 8 and 24\n')
+                parser.print_help()
+                sys.exit(1)
+
+    ip4_pattern = re.compile("^\d{1,3}[.]\d{1,3}[.]\d{1,3}[.]\d{1,3}$")
+    if not ip4_pattern.match(args.SUPERVISOR_IP4):
+        print('\nERROR: invalid Supervisor IP format \n')
+        parser.print_help()
+        sys.exit(1)
+
+    args.SUPERVISOR_PORT = int(args.SUPERVISOR_PORT)
+    if (args.SUPERVISOR_PORT <= 0 or args.SUPERVISOR_PORT > 65536):
+        print('\nERROR: invalid port number \n')
+        parser.print_help()
+        sys.exit(1)
+    
     if not args.TSTAT_RUNTIMECONF:
-        print('error: missing -T|--tstat-runtimeconf\n')
+        print('\nERROR: missing -T|--tstat-runtimeconf\n')
         parser.print_help()
         sys.exit(1)
 
     if args.DISABLE_SEC == False and not args.CERTFILE:
-        print('error: missing -C|--certfile\n')
+        print('\nERROR: missing -C|--certfile\n')
         parser.print_help()
         sys.exit(1)
 
@@ -192,19 +227,19 @@ class HttpProbe():
             mplane.utils.check_file(cert)
             mplane.utils.check_file(key)
             mplane.utils.check_file(ca)
-            self.pool = HTTPSConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca) 
+            self.pool = HTTPSConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca) 
             #self.user = "mPlane-Client"
         else: 
-            self.pool = HTTPConnectionPool(SUPERVISOR_IP4, SUPERVISOR_PORT)
+            self.pool = HTTPConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT)
             #self.user = None
                 
         self.immediate_ms = immediate_ms
         self.scheduler = mplane.scheduler.Scheduler() #(security)
-        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
-        #self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(), args.TSTAT_RUNTIMECONF))
-        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(), args.TSTAT_RUNTIMECONF))
-        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(), args.TSTAT_RUNTIMECONF))
-        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
           
     def register_to_supervisor(self):
         url = "/" + REGISTRATION_PATH
@@ -212,18 +247,25 @@ class HttpProbe():
         for key in self.scheduler.capability_keys():  
             cap = self.scheduler.capability_for_key(key)
             caps_list = caps_list + mplane.model.unparse_json(cap)
-        res = self.pool.urlopen('POST', url, 
-            body=caps_list.encode("utf-8"), 
-            headers={"content-type": "application/x-mplane+json"})
+        connected = False
+        while not connected:
+            try:
+                res = self.pool.urlopen('POST', url, 
+                    body=caps_list.encode("utf-8"), 
+                    headers={"content-type": "application/x-mplane+json"})
+                connected = True
+            except:
+                print("Supervisor unreachable. Retrying connection in 5 seconds")
+                sleep(5)
         if res.status == 200:
             print("Capabilities successfully registered:")
             for key in self.scheduler.capability_keys():  
                 cap = self.scheduler.capability_for_key(key)
                 print("    " + cap.get_label())
-        elif res.status == 403:
-            print("Invalid registration format!")
         else:
             print("Error registering capabilities, Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
+            exit(1)
+            
     
     def return_results(self, job):
         url = "/" + RESULT_PATH
@@ -240,9 +282,9 @@ class HttpProbe():
                 body=mplane.model.unparse_json(reply).encode("utf-8"), 
                 headers={"content-type": "application/x-mplane+json"})
         if res.status == 200:
-            print("Result for " + job.service._capability.get_label() + " successfully returned!")
+            print("Result for " + reply.get_label() + " successfully returned!")
         else:
-            print("Error returning Result for " + job.service._capability.get_label())
+            print("Error returning Result for " + reply.get_label())
             print("Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
         pass
     

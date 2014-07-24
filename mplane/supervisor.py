@@ -1,11 +1,8 @@
-#
-# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
-##
 # mPlane Protocol Reference Implementation
 # Simple mPlane Supervisor and CLI (JSON over HTTP)
 #
 # (c) 2013-2014 mPlane Consortium (http://www.ict-mplane.eu)
-#               Author: Pentassuglia Stefano
+#               Author: Stefano Pentassuglia
 #
 # This program is free software: you can redistribute it and/or modify it under
 # the terms of the GNU Lesser General Public License as published by the Free
@@ -29,6 +26,8 @@ import mplane.sv_handlers
 import ssl
 import sys
 import cmd
+import copy
+import math
 from collections import OrderedDict
 import tornado.web
 import tornado.httpserver
@@ -73,15 +72,73 @@ def parse_args():
 
 def listen_in_background():
     tornado.ioloop.IOLoop.instance().start()
+    
+def ip_to_bin(address, netmask):
+    num_groups = address.split('.')
+    bin_address = ""
+    for group in num_groups:
+        bin_group =bin(int(group)).replace("0b","")
+        while len(bin_group) < 8:
+            bin_group = "0" + bin_group
+        bin_address += bin_group
+    
+    print(bin_address[0:netmask])
+    return bin_address[0:netmask]
+        
+def get_distance(net1, mask1, net2, mask2):
+    if mask1 == mask2:
+        bin_net1 = ip_to_bin(net1, mask1)
+        bin_net2 = ip_to_bin(net2, mask2)
+        dec_net1 = int(bin_net1, 2)
+        dec_net2 = int(bin_net2, 2)
+        return dec_net1 - dec_net2
 
+def get_net_info(cap):
+    # retrieve subnet mask and ip from the parameters in the capability
+    params = [v._as_tuple() for v in cap._params.values()]
+    subnet_ip4 = None
+    subnet_mask = None
+    for param in params:
+        if param[0] == 'subnet.ip4':
+            subnet_ip4 = param[1]
+        elif param[0] == 'subnet.netmask':
+            subnet_mask = int(param[1])
+    if (subnet_ip4 is None or subnet_mask is None):
+        print("Missing subnet.ip4 or subnet.netmask parameters")
+        return None
+    else:
+        return [subnet_ip4, subnet_mask]
+        
 class AggregatedCapability(object):
     
-    def __init__(self, cap, dn_list):
+    def __init__(self, cap, dn_list, interval, netmask):
         self.schema = cap
         self.dn_list = dn_list
+        self.net_interval = interval
+        self.netmask = netmask
         
-    def add_dn(self, dn):
+    def aggregate_cap(self, dn, ip4, mask):
         self.dn_list.append(dn)
+        if math.fabs(get_distance(self.net_interval[0], netmask, ip4, mask)) == 1:
+            self.net_interval[0] = ip4
+        elif math.fabs(get_distance(self.net_interval[1], netmask, ip4, mask)) == 1:
+            self.net_interval[1] = ip4
+        else:
+            print("Error: new capability should be adjacent, but is not!")
+            
+    def further_aggregate(self, aggr_cap):
+        self.dn_list.append(aggr_cap.dn_list)
+        if math.fabs(get_distance(self.net_interval[0], netmask, aggr_cap.net_interval[1], aggr_cap.netmask)) == 1:
+            self.net_interval[0] = aggr_cap.net_interval[0]
+        elif math.fabs(get_distance(self.net_interval[1], netmask, aggr_cap.net_interval[0], aggr_cap.netmask)) == 1:
+            self.net_interval[1] = aggr_cap.net_interval[1]
+
+    def is_adjacent(self, other_ip4, other_mask):
+        if (math.fabs(get_distance(self.net_interval[0], netmask, other_ip4, other_mask)) == 1 or
+            math.fabs(get_distance(self.net_interval[1], netmask, other_ip4, other_mask)) == 1):
+            return True
+        else:
+            return False
     
     def ip_to_string(self, dn_to_ip):
         ip_string = ""
@@ -136,28 +193,97 @@ class HttpSupervisor(object):
 
         # empty capability and measurement lists
         self._capabilities = OrderedDict()
-        self._aggregated_caps = OrderedDict()
+        self._aggregated_caps = []
         self._specifications = OrderedDict()
         self._receipts = OrderedDict()
         self._results = OrderedDict()
         self._aggregated_meas = dict()
         self._dn_to_ip = dict()
-        # labels of stored capabilities, associated to DNs. For aggregation purposes
-        self._label_to_dn = dict()
+        self._info_by_label = dict()
         
-    def aggregate(self, cap, dn):
-        label = cap.get_label()
-        if label not in self._label_to_dn:
-            self._label_to_dn[label] = [dn]
+    def register(self, cap, dn):
+        net_info = get_net_info(cap)
+        if net_info is not None:
+            subnet_ip4 = net_info[0]
+            subnet_mask = net_info[1]
         else:
-            self._label_to_dn[label].append(dn)
-            aggr_label = "aggregated-" + label
-            if aggr_label in self._aggregated_caps:
-                self._aggregated_caps[aggr_label].add_dn(dn)
-            else:
-                aggregated_cap = AggregatedCapability(cap, self._label_to_dn[label])
-                self._aggregated_caps[aggr_label] = aggregated_cap
+            return
         
+        label = cap.get_label()
+        if label not in self._info_by_label:
+            self._info_by_label[label] = [[dn, subnet_ip4, subnet_mask]]
+            if dn not in self._capabilities:
+                self._capabilities[dn] = [cap]
+            else:
+                self._capabilities[dn].append(cap)
+        else:
+            self._info_by_label[label].append([dn, subnet_ip4, subnet_mask])
+            aggr_label = "aggregated-" + label
+            aggregation_success = False
+            for aggr_cap in self._aggregated_caps:
+                if (aggr_cap.is_adjacent(subnet_ip4, subnet_mask) and aggr_cap.schema.get_label() == aggr_label):
+                    aggr_cap.aggregate_cap(dn, subnet_ip4, subnet_mask)
+                    check_single_caps(aggr_cap)
+                    check_aggregated_caps(aggr_cap)
+                    aggregation_success = True
+                    break
+            if aggregation_success is False:
+                for check_dn in self._capabilities:
+                    for single_cap in self._capabilities[check_dn]:
+                        if single_cap.get_label() == cap.get_label():
+                            net_info = get_net_info(single_cap)
+                            if net_info is not None:
+                                check_ip4 = net_info[0]
+                                check_mask = net_info[1]
+                            else:
+                                return
+                            if get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == 1:
+                                new_aggr = AggregatedCapability(cap, [dn, check_dn], [check_ip4, subnet_ip4])
+                                self._aggregated_caps.append(new_aggr)
+                                aggregation_success = True
+                                break
+                            elif get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == -1:
+                                new_aggr = AggregatedCapability(cap, [dn, check_dn], [subnet_ip4, check_ip4])
+                                self._aggregated_caps.append(new_aggr)
+                                aggregation_success = True
+                                break
+                    if aggregation_success is True:
+                        self.check_single_caps(new_aggr)
+                        self.check_aggregated_caps(new_aggr)
+                        break
+            if aggregation_success is False:
+                if dn not in self._capabilities:
+                    self._capabilities[dn] = [cap]
+                else:
+                    self._capabilities[dn].append(cap)
+
+    def check_single_caps(self, aggr_cap):
+        to_be_removed = []
+        for dn in self._capabilities:
+            for cap in self._capabilities[dn]:
+                if cap.get_label() == aggr_cap.schema.get_label():
+                    net_info = get_net_info(cap)
+                    if net_info is not None:
+                        ip4 = net_info[0]
+                        mask = net_info[1]
+                    else:
+                        return
+                    if aggr_cap.is_adjacent(ip4, mask):
+                        aggr_cap.aggregate_cap(dn, ip4, mask)
+                        to_be_removed.append([dn, cap])
+        for dn, cap in to_be_removed:
+            self._capabilities[dn].remove(cap)
+    
+    def check_aggregated_caps(self, aggr_cap):
+        to_be_removed = []
+        for cap in self._aggregated_caps:
+            if cap.schema.get_label() == aggr_cap.schema.get_label():
+                if aggr_cap.is_adjacent(cap.net_interval[0], cap.netmask):
+                    aggr_cap.further_aggregate(cap)
+                    to_be_removed.append(cap)
+        for cap in to_be_removed:
+            self._aggregated_caps.remove(cap)
+    
     def add_result(self, msg, dn):
         """Add a result. Check for duplicates and if result is expected."""
         if dn in self._receipts:
@@ -166,6 +292,10 @@ class HttpSupervisor(object):
                     if dn not in self._results:
                         self._results[dn] = [msg]
                     else:
+                        for result in self._results[dn]:
+                            if str(result.get_token()) == str(msg.get_token):
+                                print("WARNING: Duplicated result received!")
+                                return False
                         self._results[dn].append(msg)
                     
                     self._receipts[dn].remove(receipt)
@@ -176,14 +306,21 @@ class HttpSupervisor(object):
         
     def add_spec(self, spec, dn):
         if dn not in self._specifications:
+            if dn in self._receipts:
+                for rec in self._receipts[dn]:
+                    if str(rec.get_token()) == str(spec.get_token()):
+                        print("There is already a Measurement running for this Capability. Try again later")
+                        return False
             self._specifications[dn] = [spec]
+            return True
         else:
             # Check for concurrent specifications
             for prev_spec in self._specifications[dn]:
                 if spec.fulfills(prev_spec):
                     print("There is already a Specification for this Capability. Try again later")
-                    return 
+                    return False
             self._specifications[dn].append(spec)
+            return True
             
     def dn_from_ip(self, ip):
         for dn in self._dn_to_ip:
@@ -194,17 +331,26 @@ class HttpSupervisor(object):
         """Iterate over all measurements (receipts and results)"""
         measurements = OrderedDict()
         
-        for key in self._receipts:
-            if key not in measurements:
-                measurements[key] = [self._receipts[key]]
+        for dn in self._specifications:
+            if dn not in measurements:
+                measurements[dn] = copy.deepcopy(self._specifications[dn])
             else:
-                measurements[key].append(self._receipts[key])
+                for spec in self._specifications[dn]:
+                    measurements[dn].append(spec)
+        
+        for dn in self._receipts:
+            if dn not in measurements:
+                measurements[dn] = copy.deepcopy(self._receipts[dn])
+            else:
+                for receipt in self._receipts[dn]:
+                    measurements[dn].append(receipt)
                 
-        for key in self._results:
-            if key not in measurements:
-                measurements[key] = [self._results[key]]
+        for dn in self._results:
+            if dn not in measurements:
+                measurements[dn] = copy.deepcopy(self._results[dn])
             else:
-                measurements[key].append(self._results[key])
+                for result in self._results[dn]:
+                    measurements[dn].append(result)
                 
         return measurements
 
@@ -280,45 +426,28 @@ class SupervisorShell(cmd.Cmd):
     def do_listmeas(self, arg):
         """List running/completed measurements by index"""
         i = 1
-        for key in self._supervisor._receipts:
-            if len(self._supervisor._receipts[key]) > 0:
-                for receipt in self._supervisor._receipts[key]:
-                    print(str(i) + " - " + repr(receipt))
-                    i = i + 1
-        for key in self._supervisor._results:
-            if len(self._supervisor._results[key]) > 0:
-                for result in self._supervisor._results[key]:
-                    print(str(i) + " - " + repr(result))
-                    i = i + 1
+        meas = self._supervisor.measurements()
+        for dn in meas:
+            for m in meas[dn]:
+                print(str(i) + " - " + repr(m))
+                i = i + 1
 
     def do_showmeas(self, arg):
         """Show receipt/results for a measurement, given a measurement index"""
+        meas = self._supervisor.measurements()
         if len(arg) > 0:
             i = 1
-            for key in self._supervisor._receipts:
-                if len(self._supervisor._receipts[key]) > 0:
-                    for receipt in self._supervisor._receipts[key]:
-                        if str(i) == arg:
-                            self._show_stmt(receipt)
-                            return
-                        i = i + 1
-            for key in self._supervisor._results:
-                if len(self._supervisor._results[key]) > 0:
-                    for result in self._supervisor._results[key]:
-                        if str(i) == arg:
-                            self._show_stmt(result)
-                            return
-                        i = i + 1
+            for dn in meas:
+                for m in meas[dn]:
+                    if str(i) == arg:
+                        self._show_stmt(m)
+                        return
+                    i = i + 1
             print("No such measurement: " + arg)
         else:
-            for key in self._supervisor._receipts:
-                if len(self._supervisor._receipts[key]) > 0:
-                    for receipt in self._supervisor._receipts[key]:
-                        self._show_stmt(receipt)
-            for key in self._supervisor._results:
-                if len(self._supervisor._results[key]) > 0:
-                    for result in self._supervisor._results[key]:
-                        self._show_stmt(result)
+            for dn in meas:
+                for m in meas[dn]:
+                    self._show_stmt(m)
 
     def _show_stmt(self, stmt):
         print(mplane.model.unparse_yaml(stmt))

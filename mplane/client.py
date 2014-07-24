@@ -1,6 +1,3 @@
-#
-# vim: tabstop=4 expandtab shiftwidth=4 softtabstop=4
-##
 # mPlane Protocol Reference Implementation
 # Simple mPlane client and CLI (JSON over HTTP)
 #
@@ -124,8 +121,7 @@ class HttpClient(object):
             print("parsing json")
             return mplane.model.parse_json(res.data.decode("utf-8"))
         else:
-            print("giving up")
-            return None
+            return [res.status, res.data.decode("utf-8")]
 
     def handle_message(self, msg):
         """
@@ -133,20 +129,22 @@ class HttpClient(object):
         and results, and handles Exceptions.
 
         """
-        print("got message:")
-        print(mplane.model.unparse_yaml(msg))
+        try:
+            print("got message:")
+            print(mplane.model.unparse_yaml(msg))
 
-        if isinstance(msg, mplane.model.Capability):
-            self.add_capability(msg)
-        elif isinstance(msg, mplane.model.Receipt):
-            self.add_receipt(msg)
-        elif isinstance(msg, mplane.model.Result):
-            self.add_result(msg)
-        elif isinstance(msg, mplane.model.Exception):
-            self._handle_exception(msg)
-        else:
-            # FIXME do something diagnostic here
-            pass
+            if isinstance(msg, mplane.model.Capability):
+                self.add_capability(msg)
+            elif isinstance(msg, mplane.model.Receipt):
+                self.add_receipt(msg)
+            elif isinstance(msg, mplane.model.Result):
+                self.add_result(msg)
+            elif isinstance(msg, mplane.model.Exception):
+                self._handle_exception(msg)
+            else:
+                pass
+        except:
+            print("Supervisor returned: " + str(msg[0]) + " - " + msg[1])
 
     def capabilities(self):
         """Iterate over capabilities"""
@@ -197,7 +195,6 @@ class HttpClient(object):
             self._receipts.append(msg)
 
     def redeem_receipt(self, msg):
-        print(msg.get_label())
         self.handle_message(self.get_mplane_reply("/"+S_RESULT_PATH, mplane.model.Redemption(receipt=msg)))
 
     def redeem_receipts(self):
@@ -229,21 +226,14 @@ class HttpClient(object):
 
     def measurement_at(index):
         """Retrieve a measurement at a given index"""
-        if index >= len(self._results):
+        if index < len(self._results):
+            return self._results[index]
+        else:
             index -= len(self._results)
             return self._receipts[index]
-        else:
-            return self._results[index]
 
     def _handle_exception(self, exc):
         print(repr(exc))
-
-
-class SshClient(object):
-    """ Skeleton for SSH Client"""
-    
-    def __init__(self, security, posturl, capurl=None):
-        pass
 
 class ClientShell(cmd.Cmd):
 
@@ -293,8 +283,6 @@ class ClientShell(cmd.Cmd):
                 self._client = HttpClient(True, supvsr_url, capurl, self._certfile)
             else:
                 raise SyntaxError("For https, need to specify the --certfile parameter when launching the client")
-        elif proto == 'ssh':
-            self._client = SshClient(True, supvsr_url, capurl)
         else:
             raise SyntaxError("Incorrect url format or protocol. Supported protocols: http, https(, ssh)")
 
