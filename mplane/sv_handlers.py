@@ -111,8 +111,8 @@ class RegistrationHandler(MPlaneHandler):
         for new_cap in new_caps:
             if isinstance(new_cap, mplane.model.Capability):
                 found = False
-                if new_cap.get_label() in self._supervisor._info_by_label:
-                    for dn in self._supervisor._info_by_label:
+                if new_cap.get_label() in self._supervisor._label_to_dn:
+                    for dn in self._supervisor._label_to_dn[new_cap.get_label()]:
                         if dn == self.dn:
                             print("WARNING: Capability " + new_cap.get_label() + " already registered!")
                             found = True
@@ -279,6 +279,7 @@ class S_CapabilityHandler(MPlaneHandler):
                 if len(forbidden_dn) > 0:
                     cap.schema.remove_parameter("aggregate.ip4")
                     cap.schema.add_parameter("aggregate.ip4", allowed_net_list)
+                cap.schema.add_result_column("subnet.ip4")
                 self._respond_message(cap.schema)
 
 class S_SpecificationHandler(MPlaneHandler):
@@ -354,23 +355,15 @@ class S_SpecificationHandler(MPlaneHandler):
                             self._respond_text(403, "No valid IP addresses requested. Specification rejected")
                             return
                             
-                        self._supervisor._aggregated_meas[receipt.get_token()] = [spec.get_label(), dn_to_be_run, res, receipt]   
+                        self._supervisor._aggregated_meas[receipt.get_token()] = [spec.get_label(), dn_to_be_run, res, receipt, requested_cap.dn_to_nets]   
                         spec.remove_parameter("aggregate.ip4")
+                        spec.remove_result_column("subnet.ip4")
                         spec.add_parameter("subnet.ip4")
                         for dn in dn_to_be_run:
-                            #cap = None
-                            #for c in self._supervisor._single_in_aggr[dn]:
-                            #    if spec.get_label() == c.get_label():
-                            #        cap = c
-                            #new_spec = mplane.model.Specification(capability=c)
+                            # add a specification for every subnet requested in the aggregate spec
                             for param in spec.parameter_names():
                                 if param == "subnet.ip4":
                                     spec.set_parameter_value("subnet.ip4", requested_cap.dn_to_nets[dn])
-                                #if (param == "subnet.netmask" or param == "aggregate.ip4" or param == "subnet.ip4"):
-                                #    pass
-                                #else:
-                                #    print("param = " + param)
-                                #    new_spec.set_parameter_value(param, str(spec.get_parameter_value(param)))
                             spec.validate()
                             if not self._supervisor.add_spec(spec, dn):
                                 self._respond_text(503, "Specification is temporarily unavailable. Try again later")
@@ -393,12 +386,12 @@ class S_SpecificationHandler(MPlaneHandler):
         return True
     
     def find_dn(self, label):
-        for dn in self._supervisor._label_to_dn[label]:
-            cap_id = label + ", " + dn
-            if self._supervisor.ac.check_azn(cap_id, self.dn):
-                return dn
-        if dn is None:
-            raise Error("Specification " + label + " doesn't match any DN")
+        if label in self._supervisor._label_to_dn:
+            for dn in self._supervisor._label_to_dn[label]:
+                cap_id = label + ", " + dn
+                if self._supervisor.ac.check_azn(cap_id, self.dn):
+                    return dn
+        raise Error("Specification " + label + " doesn't match any DN")
 
 class S_ResultHandler(MPlaneHandler):
     """
@@ -416,8 +409,8 @@ class S_ResultHandler(MPlaneHandler):
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             rec = mplane.model.parse_json(self.request.body.decode("utf-8"))
             if isinstance(rec, mplane.model.Redemption):
-                if rec.has_result_column("subnet.ip4"):
-                    aggr_meas = self._supervisor._aggregated_meas.pop(rec.get_token())
+                if rec.has_parameter("aggregate.ip4"):
+                    aggr_meas = self._supervisor._aggregated_meas[rec.get_token()]
                     label = aggr_meas[0]
                     dn_list = aggr_meas[1]
                     aggregated_res = aggr_meas[2]
@@ -430,10 +423,10 @@ class S_ResultHandler(MPlaneHandler):
                         if single_res == None:
                             self._respond_message(aggr_meas[3])
                             return
-                        
+                        dn_to_nets = aggr_meas[4]
                         for result_column in aggregated_res.result_column_names():
                             if result_column == "subnet.ip4":
-                                aggregated_res.set_result_value("subnet.ip4", self._supervisor._dn_to_ip[dn], i)
+                                aggregated_res.set_result_value("subnet.ip4", dn_to_nets[dn], i)
                             else:
                                 val = single_res.get_result_value(result_column)
                                 if len(val) == 1:
@@ -451,6 +444,7 @@ class S_ResultHandler(MPlaneHandler):
                                 aggregated_res.when()._b = single_res.when()._b
                     self.clean_results(dn_list, label)
                     print(mplane.model.unparse_yaml(aggregated_res))
+                    self._supervisor._aggregated_meas.pop(rec.get_token())
                     self._respond_message(aggregated_res)
                     return
                 else:

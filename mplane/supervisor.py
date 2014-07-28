@@ -178,19 +178,24 @@ class HttpSupervisor(object):
         self._results = OrderedDict()
         self._aggregated_meas = dict()
         self._dn_to_ip = dict()
-        self._info_by_label = dict()
+        self._label_to_dn = dict()
         
     def register(self, cap, dn):
         net_info = get_net_info(cap)
         if net_info is not None:
             subnet_ip4 = net_info[0]
             subnet_mask = net_info[1]
-        else:  
-            label = cap.get_label()
-            if label not in self._info_by_label:
-                self._info_by_label[label] = [[dn, subnet_ip4, subnet_mask]]
-            else:
-                self._info_by_label[label].append([dn, subnet_ip4, subnet_mask])
+        else:
+            subnet_ip4 = -1
+            subnet_mask = -1
+            
+        label = cap.get_label()
+        if label not in self._label_to_dn:
+            self._label_to_dn[label] = [dn]
+        else:
+            self._label_to_dn[label].append(dn)
+            
+        if (subnet_ip4 == -1 and subnet_mask == -1):
             if dn not in self._capabilities:
                 self._capabilities[dn] = [cap]
             else:
@@ -201,7 +206,6 @@ class HttpSupervisor(object):
         for aggr_cap in self._aggregated_caps:
             if (aggr_cap.is_adjacent(subnet_ip4, subnet_mask) and aggr_cap.schema.get_label() == cap.get_label()):
                 aggr_cap.aggregate_cap(dn, subnet_ip4, subnet_mask)
-                print("registering")
                 if dn not in self._single_in_aggr:
                     self._single_in_aggr[dn] = [cap]
                 else:

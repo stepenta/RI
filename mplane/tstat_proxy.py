@@ -238,7 +238,7 @@ class HttpProbe():
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
-        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
+        #self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
           
     def register_to_supervisor(self):
