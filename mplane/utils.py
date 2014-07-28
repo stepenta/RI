@@ -44,3 +44,25 @@ def normalize_path(path):
         return os.path.abspath(path)
     else:
         return path
+    
+def ip_to_bin(address, netmask):
+    num_groups = address.split('.')
+    bin_address = ""
+    for group in num_groups:
+        bin_group =bin(int(group)).replace("0b","")
+        while len(bin_group) < 8:
+            bin_group = "0" + bin_group
+        bin_address += bin_group
+    return bin_address[0:netmask]
+        
+def get_distance(net1, mask1, net2, mask2):
+    # net1 < net2: > 0
+    # net1 > net2: < 0
+    if mask1 == mask2:
+        bin_net1 = ip_to_bin(net1, mask1)
+        bin_net2 = ip_to_bin(net2, mask2)
+        dec_net1 = int(bin_net1, 2)
+        dec_net2 = int(bin_net2, 2)
+        return dec_net2 - dec_net1
+    else:
+        return 10000

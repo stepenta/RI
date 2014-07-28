@@ -1582,7 +1582,7 @@ class Parameter(Element):
         if isinstance(val, str):
             val = self._prim.parse(val)
 
-        if (val is None) or self._constraint.met_by(val.replace(" ", "")):
+        if (val is None) or self._constraint.met_by(val):
             self._val = val
         else:
             raise ValueError(repr(self) + " cannot take value " + repr(val))

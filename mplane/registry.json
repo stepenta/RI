@@ -874,6 +874,10 @@
     {
       "name": "subnet.netmask",
       "prim": "natural"
+    },
+    {
+      "name": "aggregate.ip4",
+      "prim": "string"
     }
   ]
 }

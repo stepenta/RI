@@ -37,7 +37,7 @@ import argparse
 import sys
 import re
 
-DEFAULT_IP4_NET = "192.168.4.0/24"
+DEFAULT_IP4_NET = "192.168.3.0/24"
 DEFAULT_SUPERVISOR_IP4 = '192.168.3.197'
 DEFAULT_SUPERVISOR_PORT = 8888
 REGISTRATION_PATH = "registration"
@@ -292,7 +292,8 @@ class HttpProbe():
         for token in self.scheduler.capability_keys():
             res = self.pool.request('GET', self.spec_path)
             if res.status == 200:
-                specs = self.split_specs(res.data.decode("utf-8"))
+                msg = res.data.decode("utf-8")
+                specs = self.split_specs(msg)
                 for spec in specs:
                     msg = mplane.model.parse_json(spec)
         
@@ -307,10 +308,14 @@ class HttpProbe():
         specs = []
         spec_start = 0
         spec_end = msg.find('}', spec_start)
+        while msg.count('{', spec_start, spec_end) > msg.count('}', spec_start, spec_end+1):
+            spec_end = msg.find('}', spec_end + 1)
         while spec_end != -1:
             specs.append(msg[spec_start:spec_end+1])
             spec_start = spec_end + 1
             spec_end = msg.find('}', spec_start)
+            while msg.count('{', spec_start, spec_end) > msg.count('}', spec_start, spec_end):
+                spec_end = msg.find('}', spec_end + 1)
         return specs
 
 if __name__ == "__main__":

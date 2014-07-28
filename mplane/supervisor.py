@@ -72,26 +72,6 @@ def parse_args():
 
 def listen_in_background():
     tornado.ioloop.IOLoop.instance().start()
-    
-def ip_to_bin(address, netmask):
-    num_groups = address.split('.')
-    bin_address = ""
-    for group in num_groups:
-        bin_group =bin(int(group)).replace("0b","")
-        while len(bin_group) < 8:
-            bin_group = "0" + bin_group
-        bin_address += bin_group
-    
-    print(bin_address[0:netmask])
-    return bin_address[0:netmask]
-        
-def get_distance(net1, mask1, net2, mask2):
-    if mask1 == mask2:
-        bin_net1 = ip_to_bin(net1, mask1)
-        bin_net2 = ip_to_bin(net2, mask2)
-        dec_net1 = int(bin_net1, 2)
-        dec_net2 = int(bin_net2, 2)
-        return dec_net1 - dec_net2
 
 def get_net_info(cap):
     # retrieve subnet mask and ip from the parameters in the capability
@@ -111,43 +91,41 @@ def get_net_info(cap):
         
 class AggregatedCapability(object):
     
-    def __init__(self, cap, dn_list, interval, netmask):
-        self.schema = cap
+    def __init__(self, cap, dn_list, interval, netmask, dn_to_nets):
         self.dn_list = dn_list
+        self.dn_to_nets = dn_to_nets
         self.net_interval = interval
         self.netmask = netmask
         
+        cap.remove_parameter("subnet.ip4")
+        cap.add_parameter("aggregate.ip4", interval[0] + " ... " + interval[1])
+        self.schema = cap
+        
     def aggregate_cap(self, dn, ip4, mask):
         self.dn_list.append(dn)
-        if math.fabs(get_distance(self.net_interval[0], netmask, ip4, mask)) == 1:
+        if math.fabs(mplane.utils.get_distance(self.net_interval[0], self.netmask, ip4, mask)) == 1:
             self.net_interval[0] = ip4
-        elif math.fabs(get_distance(self.net_interval[1], netmask, ip4, mask)) == 1:
+        elif math.fabs(mplane.utils.get_distance(self.net_interval[1], self.netmask, ip4, mask)) == 1:
             self.net_interval[1] = ip4
         else:
             print("Error: new capability should be adjacent, but is not!")
             
     def further_aggregate(self, aggr_cap):
         self.dn_list.append(aggr_cap.dn_list)
-        if math.fabs(get_distance(self.net_interval[0], netmask, aggr_cap.net_interval[1], aggr_cap.netmask)) == 1:
+        if math.fabs(mplane.utils.get_distance(self.net_interval[0], self.netmask, aggr_cap.net_interval[1], aggr_cap.netmask)) == 1:
             self.net_interval[0] = aggr_cap.net_interval[0]
-        elif math.fabs(get_distance(self.net_interval[1], netmask, aggr_cap.net_interval[0], aggr_cap.netmask)) == 1:
+        elif math.fabs(mplane.utils.get_distance(self.net_interval[1], self.netmask, aggr_cap.net_interval[0], aggr_cap.netmask)) == 1:
             self.net_interval[1] = aggr_cap.net_interval[1]
 
     def is_adjacent(self, other_ip4, other_mask):
-        if (math.fabs(get_distance(self.net_interval[0], netmask, other_ip4, other_mask)) == 1 or
-            math.fabs(get_distance(self.net_interval[1], netmask, other_ip4, other_mask)) == 1):
-            return True
+        if self.netmask == other_mask:
+            if (math.fabs(mplane.utils.get_distance(self.net_interval[0], self.netmask, other_ip4, other_mask)) == 1 or
+                math.fabs(mplane.utils.get_distance(self.net_interval[1], self.netmask, other_ip4, other_mask)) == -1):
+                return True
+            else:
+                return False
         else:
             return False
-    
-    def ip_to_string(self, dn_to_ip):
-        ip_string = ""
-        for dn in self.dn_list:
-            if len(ip_string) == 0:
-                ip_string = dn_to_ip[dn]
-            else:
-                ip_string = ip_string + "," + dn_to_ip[dn]
-        return ip_string
 
 class HttpSupervisor(object):
     """
@@ -194,6 +172,7 @@ class HttpSupervisor(object):
         # empty capability and measurement lists
         self._capabilities = OrderedDict()
         self._aggregated_caps = []
+        self._single_in_aggr = OrderedDict()
         self._specifications = OrderedDict()
         self._receipts = OrderedDict()
         self._results = OrderedDict()
@@ -206,56 +185,72 @@ class HttpSupervisor(object):
         if net_info is not None:
             subnet_ip4 = net_info[0]
             subnet_mask = net_info[1]
-        else:
-            return
-        
-        label = cap.get_label()
-        if label not in self._info_by_label:
-            self._info_by_label[label] = [[dn, subnet_ip4, subnet_mask]]
+        else:  
+            label = cap.get_label()
+            if label not in self._info_by_label:
+                self._info_by_label[label] = [[dn, subnet_ip4, subnet_mask]]
+            else:
+                self._info_by_label[label].append([dn, subnet_ip4, subnet_mask])
             if dn not in self._capabilities:
                 self._capabilities[dn] = [cap]
             else:
                 self._capabilities[dn].append(cap)
-        else:
-            self._info_by_label[label].append([dn, subnet_ip4, subnet_mask])
-            aggr_label = "aggregated-" + label
-            aggregation_success = False
-            for aggr_cap in self._aggregated_caps:
-                if (aggr_cap.is_adjacent(subnet_ip4, subnet_mask) and aggr_cap.schema.get_label() == aggr_label):
-                    aggr_cap.aggregate_cap(dn, subnet_ip4, subnet_mask)
-                    check_single_caps(aggr_cap)
-                    check_aggregated_caps(aggr_cap)
-                    aggregation_success = True
-                    break
-            if aggregation_success is False:
-                for check_dn in self._capabilities:
-                    for single_cap in self._capabilities[check_dn]:
-                        if single_cap.get_label() == cap.get_label():
-                            net_info = get_net_info(single_cap)
-                            if net_info is not None:
-                                check_ip4 = net_info[0]
-                                check_mask = net_info[1]
-                            else:
-                                return
-                            if get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == 1:
-                                new_aggr = AggregatedCapability(cap, [dn, check_dn], [check_ip4, subnet_ip4])
-                                self._aggregated_caps.append(new_aggr)
-                                aggregation_success = True
-                                break
-                            elif get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == -1:
-                                new_aggr = AggregatedCapability(cap, [dn, check_dn], [subnet_ip4, check_ip4])
-                                self._aggregated_caps.append(new_aggr)
-                                aggregation_success = True
-                                break
-                    if aggregation_success is True:
-                        self.check_single_caps(new_aggr)
-                        self.check_aggregated_caps(new_aggr)
-                        break
-            if aggregation_success is False:
-                if dn not in self._capabilities:
-                    self._capabilities[dn] = [cap]
+            return
+                
+        aggregation_success = False
+        for aggr_cap in self._aggregated_caps:
+            if (aggr_cap.is_adjacent(subnet_ip4, subnet_mask) and aggr_cap.schema.get_label() == cap.get_label()):
+                aggr_cap.aggregate_cap(dn, subnet_ip4, subnet_mask)
+                print("registering")
+                if dn not in self._single_in_aggr:
+                    self._single_in_aggr[dn] = [cap]
                 else:
-                    self._capabilities[dn].append(cap)
+                    self._single_in_aggr[dn].append(cap)
+                self.check_single_caps(aggr_cap)
+                self.check_aggregated_caps(aggr_cap)
+                aggregation_success = True
+                break
+        if aggregation_success is False:
+            for check_dn in self._capabilities:
+                for single_cap in self._capabilities[check_dn]:
+                    if single_cap.get_label() == cap.get_label():
+                        net_info = get_net_info(single_cap)
+                        if net_info is not None:
+                            check_ip4 = net_info[0]
+                            check_mask = net_info[1]
+                        else:
+                            break
+                        dn_to_nets = dict()
+                        dn_to_nets[dn] = subnet_ip4
+                        dn_to_nets[check_dn] = check_ip4
+                        if mplane.utils.get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == 1:
+                            new_aggr = AggregatedCapability(cap, [dn, check_dn], [subnet_ip4, check_ip4], subnet_mask, dn_to_nets)
+                            aggregation_success = True
+                        elif mplane.utils.get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == -1:
+                            new_aggr = AggregatedCapability(cap, [dn, check_dn], [check_ip4, subnet_ip4], subnet_mask, dn_to_nets)
+                            aggregation_success = True
+                            
+                        if aggregation_success is True:
+                            self._aggregated_caps.append(new_aggr)
+                            if check_dn not in self._single_in_aggr:
+                                self._single_in_aggr[check_dn] = [single_cap]
+                            else:
+                                self._single_in_aggr[check_dn].append(single_cap)
+                            if dn not in self._single_in_aggr:
+                                self._single_in_aggr[dn] = [cap]
+                            else:
+                                self._single_in_aggr[dn].append(cap)
+                            self._capabilities[check_dn].remove(single_cap)
+                            break
+                if aggregation_success is True:
+                    self.check_single_caps(new_aggr)
+                    self.check_aggregated_caps(new_aggr)
+                    break
+        if aggregation_success is False:
+            if dn not in self._capabilities:
+                self._capabilities[dn] = [cap]
+            else:
+                self._capabilities[dn].append(cap)
 
     def check_single_caps(self, aggr_cap):
         to_be_removed = []
@@ -267,18 +262,26 @@ class HttpSupervisor(object):
                         ip4 = net_info[0]
                         mask = net_info[1]
                     else:
-                        return
+                        break
                     if aggr_cap.is_adjacent(ip4, mask):
                         aggr_cap.aggregate_cap(dn, ip4, mask)
                         to_be_removed.append([dn, cap])
         for dn, cap in to_be_removed:
+            if dn not in self._single_in_aggr:
+                self._single_in_aggr[dn] = [cap]
+            else:
+                self._single_in_aggr[dn].append(cap)
             self._capabilities[dn].remove(cap)
     
     def check_aggregated_caps(self, aggr_cap):
         to_be_removed = []
         for cap in self._aggregated_caps:
-            if cap.schema.get_label() == aggr_cap.schema.get_label():
+            if (cap.schema.get_label() == aggr_cap.schema.get_label() and 
+                cap.net_interval[0] != aggr_cap.net_interval[0]):
                 if aggr_cap.is_adjacent(cap.net_interval[0], cap.netmask):
+                    aggr_cap.further_aggregate(cap)
+                    to_be_removed.append(cap)
+                elif aggr_cap.is_adjacent(cap.net_interval[1], cap.netmask):
                     aggr_cap.further_aggregate(cap)
                     to_be_removed.append(cap)
         for cap in to_be_removed:
@@ -375,9 +378,9 @@ class SupervisorShell(cmd.Cmd):
                 print(str(i) + " - " + cap.get_label() + " from " + self._supervisor._dn_to_ip[key])
                 i = i + 1
                 
-        for label in self._supervisor._aggregated_caps:
-            print(str(i) + " - " + label + " from:")
-            for dn in self._supervisor._aggregated_caps[label].dn_list:
+        for cap in self._supervisor._aggregated_caps:
+            print(str(i) + " - " + cap.schema.get_label() + " from:")
+            for dn in cap.dn_list:
                 print("        " + self._supervisor._dn_to_ip[dn])
             i = i + 1
 
@@ -395,11 +398,11 @@ class SupervisorShell(cmd.Cmd):
                         self._show_stmt(cap)
                         return
                     i = i + 1
-            for label in self._supervisor._aggregated_caps:
+            for cap in self._supervisor._aggregated_caps:
                 if str(i) == arg:
-                    self._show_stmt(self._supervisor._aggregated_caps[label].schema)
+                    self._show_stmt(cap.schema)
                     ips = ""
-                    for dn in self._supervisor._aggregated_caps[label].dn_list:
+                    for dn in cap.dn_list:
                         if ips == "":
                             ips = self._supervisor._dn_to_ip[dn]
                         else:
@@ -413,10 +416,10 @@ class SupervisorShell(cmd.Cmd):
             for key in self._supervisor._capabilities:
                 for cap in self._supervisor._capabilities[key]:
                     self._show_stmt(cap)
-            for label in self._supervisor._aggregated_caps:
-                self._show_stmt(self._supervisor._aggregated_caps[label].schema)
+            for cap in self._supervisor._aggregated_caps:
+                self._show_stmt(cap.schema)
                 ips = ""
-                for dn in self._supervisor._aggregated_caps[label].dn_list:
+                for dn in cap.dn_list:
                     if ips == "":
                         ips = self._supervisor._dn_to_ip[dn]
                     else:
@@ -467,11 +470,11 @@ class SupervisorShell(cmd.Cmd):
                     self.schedule_spec(cap, key)
                     return
                 i = i + 1
-        for label in self._supervisor._aggregated_caps:
+        for cap in self._supervisor._aggregated_caps:
             if str(i) == arg:
-                ip_list = self._supervisor._aggregated_caps[label].ip_to_string(self._supervisor._dn_to_ip)
-                self._supervisor._aggregated_caps[label].schema.add_parameter("list.ip4", ip_list)
-                self._show_stmt(self._supervisor._aggregated_caps[label].schema)
+                #ip_list = self._supervisor._aggregated_caps[label].ip_to_string(self._supervisor._dn_to_ip)
+                #self._supervisor._aggregated_caps[label].schema.add_parameter("list.ip4", ip_list)
+                self._show_stmt(cap.schema)
                 return
             i = i + 1
         print("No such capability: " + arg)
