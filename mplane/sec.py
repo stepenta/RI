@@ -30,6 +30,7 @@ class Authorization(object):
             self.cr = self.load_roles("caps.conf")
     		
     def load_roles(self, filename):
+        """ Loads user-role-capability associations and keeps them in cache """
         r = {}
         if os.path.isfile(os.path.join("/etc/mplane/", filename)):
             filepath = os.path.join("/etc/mplane/", filename)
@@ -44,27 +45,19 @@ class Authorization(object):
         with open(filepath) as f:
             for line in f.readlines():
                 line = line.rstrip('\n')
-                user = line.split(': ')[0]
-                roles = set(line.split(': ')[1].split(', '))
-                r[user] = roles
+                if line[0] != '#':
+                    user = line.split(': ')[0]
+                    roles = set(line.split(': ')[1].split(', '))
+                    r[user] = roles
         return r
     
     def check_azn(self, cap_name, user_name):
         """ Checks if the user is allowed to use a given capability """
         if self.security == True:
-            #self.print_debug_info()
             if ((cap_name in self.cr) and (user_name in self.ur)): # Deny unless explicitly allowed in .conf files
                 intersection = self.cr[cap_name] & self.ur[user_name]
                 if len(intersection) > 0:
-                    #print ("Capability " + str(cap_name) + " allowed for " + user_name + " as " + str(intersection))
                     return True
-            #print ("Capability " + str(cap_name) + " denied for " + user_name)
             return False
         else:
             return True
-
-    def print_debug_info(self):
-        for name in self.cr:
-            print("CR - key: " + name + ", value: " + str(self.cr[name]))
-        for name in self.ur:
-            print("UR - key: " + name + ", value: " + str(self.ur[name]))

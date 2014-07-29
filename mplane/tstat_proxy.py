@@ -18,12 +18,6 @@
 # this program.  If not, see <http://www.gnu.org/licenses/>.
 #
 
-"""
-Implements tStat prototype for integration into 
-the mPlane reference implementation.
-
-"""
-
 import threading
 from datetime import datetime
 from time import sleep
@@ -44,7 +38,21 @@ REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
 RESULT_PATH = "result"
 
+
+"""
+Implements tStat proxy for integration into 
+the mPlane reference implementation.
+(capability push, specification pull)
+
+"""
+
 class tStatService(mplane.scheduler.Service):
+    """
+    This class handles the capabilities exposed by the proxy:
+    executes them, and fills the results
+    
+    """
+    
     def __init__(self, cap, fileconf):
         # verify the capability is acceptable
         mplane.tstat_caps.check_cap(cap)
@@ -52,21 +60,53 @@ class tStatService(mplane.scheduler.Service):
         #self._logdir = logdir
         self._fileconf = fileconf
 
+    def run(self, spec, check_interrupt):
+        """
+        Execute this Service
+        
+        """
+        start_time = datetime.utcnow()
+
+        # start measurement changing the tstat conf file
+        self.change_conf(spec._label, True)
+
+        # wait for specification execution
+        wait_time = spec._when.timer_delays()
+        wait_seconds = wait_time[1]
+        if wait_seconds != None:
+            sleep(wait_seconds)
+        end_time = datetime.utcnow()
+
+        # terminate measurement changing the tstat conf file
+        self.change_conf(spec._label, False)
+        
+        # fill result message from tStat log
+        print("specification " + spec._label + ": start = " + str(start_time) + ", end = " + str(end_time))
+        res = self.fill_res(spec, start_time, end_time)
+        return res
+        
     def change_conf(self, cap_label, enable):
+        """
+        Changes the needed flags in the tStat runtime.conf file
+        
+        """
         newlines = []
         f = open(self._fileconf, 'r')
         for line in f:
-
+            
+            # read parameter names and values (discard comments or empty lines)
             if (line[0] != '[' and line[0] != '#' and
-                line[0] != '\n' and line[0] != ' '):    # discard useless lines
+                line[0] != '\n' and line[0] != ' '):    
                 param = line.split('#')[0]
                 param_name = param.split(' = ')[0]
                 
+                # change flags according to the measurement requested
                 if enable == True:
+                    
+                    # in order to activate optional sets, the basic set (log_tcp_complete) must be active too
                     if (cap_label == "tstat-log_tcp_complete-core" and param_name == 'log_tcp_complete'):
                         newlines.append(line.replace('0', '1'))
-
-                    # in order to activate optional sets, the basic set (log_tcp_complete) must be active too
+                        
                     elif (cap_label == "tstat-log_tcp_complete-end_to_end" and (
                         param_name == 'tcplog_end_to_end' 
                         or param_name == 'log_tcp_complete')):
@@ -112,6 +152,10 @@ class tStatService(mplane.scheduler.Service):
         f.close
         
     def fill_res(self, spec, start, end):
+        """
+        Create a Result statement, fill it and return it
+        
+        """
 
         # derive a result from the specification
         res = mplane.model.Result(specification=spec)
@@ -139,26 +183,11 @@ class tStatService(mplane.scheduler.Service):
         
         return res
 
-    def run(self, spec, check_interrupt):
-        start_time = datetime.utcnow()
-
-        #change runtime.conf
-        self.change_conf(spec._label, True)
-
-        # wait for specification execution
-        wait_time = spec._when.timer_delays()
-        wait_seconds = wait_time[1]
-        if wait_seconds != None:
-            sleep(wait_seconds)
-        end_time = datetime.utcnow()
-
-        # fill result message from tStat log
-        self.change_conf(spec._label, False)
-        print("specification " + spec._label + ": start = " + str(start_time) + ", end = " + str(end_time))
-        res = self.fill_res(spec, start_time, end_time)
-        return res
-
 def parse_args():
+    """
+    Parse arguments from command line
+    
+    """
     global args
     parser = argparse.ArgumentParser(description='run a Tstat mPlane proxy')
     parser.add_argument('-n', '--net-address', metavar='net-address', default=DEFAULT_IP4_NET, dest='IP4_NET',
@@ -175,13 +204,15 @@ def parse_args():
                         help = 'Tstat runtime.conf configuration file path')
     args = parser.parse_args()
 
-
+    # check format of subnet address
     net_pattern = re.compile("^\d{1,3}[.]\d{1,3}[.]\d{1,3}[.]\d{1,3}[/]\d{1,2}$")
     if not net_pattern.match(args.IP4_NET):
         print('\nERROR: Invalid network address format. The format must be: x.x.x.x/n\n')
         parser.print_help()
         sys.exit(1)
     else:
+        
+        # extract the subnet mask and check its format
         slash = args.IP4_NET.find("/")
         if slash > 0:
             netmask = int(args.IP4_NET[slash+1:])
@@ -190,34 +221,46 @@ def parse_args():
                 parser.print_help()
                 sys.exit(1)
 
+    # check format of Supervisor IP address
     ip4_pattern = re.compile("^\d{1,3}[.]\d{1,3}[.]\d{1,3}[.]\d{1,3}$")
     if not ip4_pattern.match(args.SUPERVISOR_IP4):
         print('\nERROR: invalid Supervisor IP format \n')
         parser.print_help()
         sys.exit(1)
 
+    # check format of Supervisor port number
     args.SUPERVISOR_PORT = int(args.SUPERVISOR_PORT)
     if (args.SUPERVISOR_PORT <= 0 or args.SUPERVISOR_PORT > 65536):
         print('\nERROR: invalid port number \n')
         parser.print_help()
         sys.exit(1)
     
+    # check if runtime.conf parameter has been inserted in the command line
     if not args.TSTAT_RUNTIMECONF:
         print('\nERROR: missing -T|--tstat-runtimeconf\n')
         parser.print_help()
         sys.exit(1)
 
+    # check if the file containing the paths for the 
+    # certificates has been inserted in the command line
+    # (only if security is enabled)
     if args.DISABLE_SEC == False and not args.CERTFILE:
         print('\nERROR: missing -C|--certfile\n')
         parser.print_help()
         sys.exit(1)
 
 class HttpProbe():
+    """
+    This class manages interactions with the supervisor:
+    registration, specification retrievement, and return of results
+    
+    """
     
     def __init__(self, immediate_ms = 5000):
         self.spec_path = "/" + SPECIFICATION_PATH
         parse_args()
         
+        # check if security is enabled, if so read certificate files
         security = not args.DISABLE_SEC
         if security:
             mplane.utils.check_file(args.CERTFILE)
@@ -227,27 +270,34 @@ class HttpProbe():
             mplane.utils.check_file(cert)
             mplane.utils.check_file(key)
             mplane.utils.check_file(ca)
-            self.pool = HTTPSConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca) 
-            #self.user = "mPlane-Client"
+            self.pool = HTTPSConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca)
         else: 
             self.pool = HTTPConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT)
-            #self.user = None
-                
+         
+        # generate a Service for each capability
         self.immediate_ms = immediate_ms
-        self.scheduler = mplane.scheduler.Scheduler() #(security)
+        self.scheduler = mplane.scheduler.Scheduler()
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
-        #self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
+        self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
           
     def register_to_supervisor(self):
+        """
+        Sends a list of capabilities to the Supervisor, in order to register them
+        
+        """
         url = "/" + REGISTRATION_PATH
+        
+        # generate the capability list
         caps_list = ""
         for key in self.scheduler.capability_keys():  
             cap = self.scheduler.capability_for_key(key)
             caps_list = caps_list + mplane.model.unparse_json(cap)
         connected = False
+        
+        # send the list to the supervisor, if reachable
         while not connected:
             try:
                 res = self.pool.urlopen('POST', url, 
@@ -257,6 +307,8 @@ class HttpProbe():
             except:
                 print("Supervisor unreachable. Retrying connection in 5 seconds")
                 sleep(5)
+                
+        # handle response message
         if res.status == 200:
             print("Capabilities successfully registered:")
             for key in self.scheduler.capability_keys():  
@@ -265,11 +317,41 @@ class HttpProbe():
         else:
             print("Error registering capabilities, Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
             exit(1)
-            
+    
+    def check_for_specs(self):
+        """
+        Poll the supervisor for specifications
+        
+        """
+        
+        # send a request for each capability
+        for token in self.scheduler.capability_keys():
+            res = self.pool.request('GET', self.spec_path)
+            if res.status == 200:
+                
+                # specs retrieved: split them if there is more than one
+                msg = res.data.decode("utf-8")
+                specs = mplane.utils.split_stmt_list(msg)
+                for spec in specs:
+                    
+                    # hand spec to scheduler
+                    reply = self.scheduler.receive_message(spec)
+                    job = self.scheduler.job_for_message(reply)
+                    
+                    # launch a thread to monitor the status of the running measurement
+                    t = threading.Thread(target=self.return_results, args=[job])
+                    t.start()
+        pass
     
     def return_results(self, job):
+        """
+        Monitors a job, and as soon as it is complete sends it to the Supervisor
+        
+        """
         url = "/" + RESULT_PATH
         reply = job.get_reply()
+        
+        # check if job is completed
         while job.finished() is not True:
             if job.failed():
                 reply = job.get_reply()
@@ -277,52 +359,28 @@ class HttpProbe():
             sleep(1)
         if isinstance (reply, mplane.model.Receipt):
             reply = job.get_reply()
-            
+        
+        # send result to the Supervisor
         res = self.pool.urlopen('POST', url, 
                 body=mplane.model.unparse_json(reply).encode("utf-8"), 
                 headers={"content-type": "application/x-mplane+json"})
+                
+        # handle response
         if res.status == 200:
             print("Result for " + reply.get_label() + " successfully returned!")
         else:
             print("Error returning Result for " + reply.get_label())
             print("Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
         pass
-    
-    def check_for_specs(self):
-        for token in self.scheduler.capability_keys():
-            res = self.pool.request('GET', self.spec_path)
-            if res.status == 200:
-                msg = res.data.decode("utf-8")
-                specs = self.split_specs(msg)
-                for spec in specs:
-                    msg = mplane.model.parse_json(spec)
-        
-                    # hand message to scheduler
-                    reply = self.scheduler.receive_message(msg) # (self.user, msg)
-                    job = self.scheduler.job_for_message(reply)
-                    t = threading.Thread(target=self.return_results, args=[job])
-                    t.start()
-        pass
-    
-    def split_specs(self, msg):
-        specs = []
-        spec_start = 0
-        spec_end = msg.find('}', spec_start)
-        while msg.count('{', spec_start, spec_end) > msg.count('}', spec_start, spec_end+1):
-            spec_end = msg.find('}', spec_end + 1)
-        while spec_end != -1:
-            specs.append(msg[spec_start:spec_end+1])
-            spec_start = spec_end + 1
-            spec_end = msg.find('}', spec_start)
-            while msg.count('{', spec_start, spec_end) > msg.count('}', spec_start, spec_end):
-                spec_end = msg.find('}', spec_end + 1)
-        return specs
 
 if __name__ == "__main__":
     mplane.model.initialize_registry()
     probe = HttpProbe()
+    
+    # register this probe to the Supervisor
     probe.register_to_supervisor()
     
+    # periodically polls the Supervisor for Specifications
     print("Checking for Specifications...")
     while(True):
         probe.check_for_specs()

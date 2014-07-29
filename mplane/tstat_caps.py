@@ -19,6 +19,12 @@
 
 import mplane.model
 
+
+"""
+List of capability definitions for the tStat-Proxy
+
+"""
+
 def tcp_flows_capability(net_address):
     cap = mplane.model.Capability(label="tstat-log_tcp_complete-core", when = "now + inf ... future")
     slash = net_address.find("/")

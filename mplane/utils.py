@@ -19,8 +19,14 @@
 #
 
 import os.path
+import re
+import mplane.model
 
 def read_setting(filepath, param):
+    """
+    Reads a setting from the file indicated
+    
+    """
     with open(filepath,'r') as f:
         for line in f.readlines():
             if line[0] != "#":
@@ -34,30 +40,55 @@ def read_setting(filepath, param):
                         return line.split('= ')[1]
     return None
     
-def check_file(filename):       
+def check_file(filename): 
+    """
+    Checks if the file exists
+    
+    """      
     if not os.path.exists(filename):
         raise ValueError("Error: File " + filename + " does not appear to exist.")
         exit(1)
         
 def normalize_path(path):
+    """
+    Converts every path into absolute paths
+    
+    """
     if path[0] != '/':
         return os.path.abspath(path)
     else:
         return path
     
 def ip_to_bin(address, netmask):
+    """
+    Converts an IP address into a binary string
+    
+    """
     num_groups = address.split('.')
     bin_address = ""
     for group in num_groups:
-        bin_group =bin(int(group)).replace("0b","")
+        
+        # convert each group of numbers of the IP into binary
+        bin_group =bin(int(group)).replace("0b","") # the bin() function prefixes each converted value with '0b'
+        
+        # normalize the binary value to 8 ciphers
         while len(bin_group) < 8:
             bin_group = "0" + bin_group
+            
+        # append the binary group to the string containing the address in binary
         bin_address += bin_group
+        
+    # return the binary address, truncated to the bits of its netmask
     return bin_address[0:netmask]
         
 def get_distance(net1, mask1, net2, mask2):
-    # net1 < net2: > 0
-    # net1 > net2: < 0
+    """
+    Returns the distance (in terms of IP addresses)
+    between two subnets:
+    net1 < net2: distance < 0
+    net1 > net2: distance > 0
+    
+    """
     if mask1 == mask2:
         bin_net1 = ip_to_bin(net1, mask1)
         bin_net2 = ip_to_bin(net2, mask2)
@@ -65,4 +96,68 @@ def get_distance(net1, mask1, net2, mask2):
         dec_net2 = int(bin_net2, 2)
         return dec_net2 - dec_net1
     else:
+        
+        # netmasks don't coincide, then the subnets are not 
+        # adjacent: return an absurdly high distance
         return 10000
+
+def check_ip_format(ip_list):
+    """
+    Checks the correctness of the IP addresses in the list
+    
+    """
+    for ip in ip_list:
+        pattern = re.compile("^\d{1,3}[.]\d{1,3}[.]\d{1,3}[.]\d{1,3}$")
+        if not pattern.match(ip):
+            return False
+    return True
+   
+def print_then_prompt(line):
+    """
+    Prints a message on screen, then prints the mplane prompt
+    
+    """
+    print(line)
+    print('|mplane| ', end="", flush = True)
+    pass
+
+def add_value_to(container, key, value):
+    """
+    Adds a value to a dict() of lists
+    
+    """
+    if key not in container:
+        container[key] = [value]
+    else:
+        container[key].append(value)
+        
+def split_stmt_list(msg):
+    """
+    Splits an unparsed list of statements (capabilities or specifications) in 
+    JSON format into a list of single statements
+    
+    """
+    stmts = []
+    stmt_start = 0
+    stmt_end = find_closed_brace(msg, stmt_start)
+    while stmt_end != -1:
+        stmts.append(mplane.model.parse_json(msg[stmt_start:stmt_end+1]))
+        stmt_start = stmt_end + 1
+        stmt_end = find_closed_brace(msg, stmt_start)
+    return stmts
+    
+def find_closed_brace(msg, stmt_start):
+    """
+    In an unparsed JSON list of statements, finds the correct 
+    closed brace that identifies the end of the statement schema 
+    (and not other closed braces within the schema)
+    
+    """
+    stmt_end = msg.find('}', stmt_start)
+    closed_braces_counter = msg[stmt_start:stmt_end+1].count("}")
+    open_braces_counter = msg[stmt_start:stmt_end].count("{")
+    while closed_braces_counter < open_braces_counter:
+        stmt_end = msg.find('}', stmt_end+1)
+        closed_braces_counter = msg[:stmt_end+1].count("}")
+        open_braces_counter = msg[:stmt_end].count("{")
+    return stmt_end
