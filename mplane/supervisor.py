@@ -34,7 +34,7 @@ import tornado.httpserver
 import argparse
 
 DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '192.168.3.197'
+DEFAULT_LISTEN_IP4 = '127.0.0.1'
 
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -106,7 +106,7 @@ class AggregatedCapability(object):
     single capabilities by which is composed, such as DN-subnet associations,
     interval of subnets covered by the aggregation, netmask, list of probes
     (identified by DN) involved in the Capability.
-    To the original schema of the single capability slightly modified, 
+    The original schema of the single capability is slightly modified, 
     substituting the "subnet.ip4" parameter with "aggregate.ip4", which contains
     the range (or the list) of subnets covered
     
@@ -183,6 +183,7 @@ class HttpSupervisor(object):
         parse_args()
                 
         application = tornado.web.Application([
+        
                 # Handlers of the HTTP Server
                 (r"/" + REGISTRATION_PATH, mplane.sv_handlers.RegistrationHandler, {'supervisor': self}),
                 (r"/" + SPECIFICATION_PATH, mplane.sv_handlers.SpecificationHandler, {'supervisor': self}),
@@ -233,6 +234,7 @@ class HttpSupervisor(object):
         Given a new capability, this function performs aggregation
         when possible, and stores the new information in the corresponding structures
         """
+        
         # retrieves information on subnet address and netmask
         net_info = get_net_info(cap)
         if net_info is not None:
@@ -317,7 +319,7 @@ class HttpSupervisor(object):
     def check_single_caps(self, aggr_cap):
         """
         Checks if the aggregated capability is adjacent to one or more
-        single capabilities. If so, aggregates them
+        single capabilities already in cache. If so, aggregates them
         """
         to_be_removed = []
         
@@ -347,7 +349,7 @@ class HttpSupervisor(object):
     def check_aggregated_caps(self, aggr_cap):
         """
         Checks if the aggregated capability is adjacent to one or more
-        aggregated capabilities. If so, aggregates them
+        aggregated capabilities already in cache. If so, aggregates them
         """
         to_be_removed = []
         for cap in self._aggregated_caps:

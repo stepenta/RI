@@ -28,7 +28,6 @@ REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
 RESULT_PATH = "result"
 S_CAPABILITY_PATH = "s_capability"
-S_AGGREGATED_CAPABILITY_PATH = "s_aggregated_capability"
 S_SPECIFICATION_PATH = "s_specification"
 S_RESULT_PATH = "s_result"
 
@@ -39,7 +38,7 @@ with the components or with the client
 
 """
 
-def get_dn(supervisor, request):   
+def get_dn(supervisor, request):
     """
     Extracts the DN from the request object. 
     If SSL is disabled, returns a dummy DN
@@ -83,27 +82,6 @@ class MPlaneHandler(tornado.web.RequestHandler):
             self.set_header("Content-Type", "text/plain")
             self.write(text)
         self.finish()
-        
-    def _redirect(self, msg):  
-        """
-        Redirects the request to the correct path
-    
-        """           
-        if isinstance(msg, mplane.model.Capability):
-            self.set_status(302)
-            self.set_header("Location", self._supervisor.base_url + REGISTRATION_PATH)
-            self.finish()
-        elif isinstance(msg, mplane.model.Result):
-            self.set_status(302)
-            self.set_header("Location", self._supervisor.base_url + RESULT_PATH)
-            self.finish()
-        elif isinstance(msg, mplane.model.Exception):
-            self.set_status(302)
-            self.set_header("Location", self._supervisor.base_url + RESULT_PATH)
-            self.finish()
-        else:
-            mplane.utils.print_then_prompt("WARNING: Unknown message received!")
-            pass
                 
 class RegistrationHandler(MPlaneHandler):
     """
@@ -202,8 +180,6 @@ class ResultHandler(MPlaneHandler):
             # hand message to supervisor
             self._supervisor._handle_exception(msg)
             mplane.utils.print_then_prompt("Exception Received! (instead of Result)")
-        else:
-            self._redirect(msg)
 
 class S_CapabilityHandler(MPlaneHandler):
     """

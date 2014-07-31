@@ -31,8 +31,8 @@ import argparse
 import sys
 import re
 
-DEFAULT_IP4_NET = "192.168.3.0/24"
-DEFAULT_SUPERVISOR_IP4 = '192.168.3.197'
+DEFAULT_IP4_NET = "192.168.1.0/24"
+DEFAULT_SUPERVISOR_IP4 = '127.0.0.1'
 DEFAULT_SUPERVISOR_PORT = 8888
 REGISTRATION_PATH = "registration"
 SPECIFICATION_PATH = "specification"
@@ -191,7 +191,7 @@ def parse_args():
     global args
     parser = argparse.ArgumentParser(description='run a Tstat mPlane proxy')
     parser.add_argument('-n', '--net-address', metavar='net-address', default=DEFAULT_IP4_NET, dest='IP4_NET',
-                        help='Subnet address/Netmask of this probe')
+                        help='Subnet IP4 and netmask observed by this probe (in the format x.x.x.x/n)')
     parser.add_argument('-d', '--supervisor-ip4', metavar='supervisor-ip4', default=DEFAULT_SUPERVISOR_IP4, dest='SUPERVISOR_IP4',
                         help='Supervisor IP address')
     parser.add_argument('-p', '--supervisor-port', metavar='supervisor-port', default=DEFAULT_SUPERVISOR_PORT, dest='SUPERVISOR_PORT',

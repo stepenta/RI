@@ -32,8 +32,8 @@ import argparse
 
 from datetime import datetime, timedelta
 
-DEFAULT_LISTEN_PORT = 8888
-DEFAULT_LISTEN_IP4 = '192.168.3.197'
+DEFAULT_SV_PORT = 8888
+DEFAULT_SV_IP4 = '127.0.0.1'
 CAPABILITY_PATH_ELEM = "s_capability"
 S_SPECIFICATION_PATH = "s_specification"
 S_RESULT_PATH = "s_result"
@@ -244,8 +244,8 @@ class ClientShell(cmd.Cmd):
         global args
         parse_args()
         self._certfile = args.CERTFILE
-        self._service_address = args.SERVICE_ADDRESS
-        self._service_port = args.SERVICE_PORT
+        self._supervisor_ip4 = args.SUPERVISOR_IP4
+        self._supervisor_port = args.SUPERVISOR_PORT
         self._client = None
         self._defaults = {}
         self._when = None
@@ -258,9 +258,9 @@ class ClientShell(cmd.Cmd):
         """Connect to a probe or supervisor and retrieve capabilities"""
 
         # define default url
-        supvsr_url = 'http://%s:%d' % (self._service_address, self._service_port)
+        supvsr_url = 'http://%s:%d' % (self._supervisor_ip4, self._supervisor_port)
         if self._certfile:
-            supvsr_url = 'https://%s:%d' % (self._service_address, self._service_port)
+            supvsr_url = 'https://%s:%d' % (self._supervisor_ip4, self._supervisor_port)
         capurl = None
 
         if arg:
@@ -436,10 +436,10 @@ def parse_args():
     global args
     parser = argparse.ArgumentParser(description="run mPlane client")
 
-    parser.add_argument('-p', '--service-port', metavar='port', dest='SERVICE_PORT', default=DEFAULT_LISTEN_PORT, type=int, \
-                        help = 'run the service on the specified port [default=%d]' % DEFAULT_LISTEN_PORT)
-    parser.add_argument('-H', '--service-ipaddr', metavar='ip', dest='SERVICE_ADDRESS', default=DEFAULT_LISTEN_IP4, \
-                        help = 'run the service on the specified IP address [default=%s]' % DEFAULT_LISTEN_IP4)
+    parser.add_argument('-p', '--supervisor-port', metavar='port', dest='SUPERVISOR_PORT', default=DEFAULT_SV_PORT, type=int, \
+                        help = 'connect to the supervisor on the specified port [default=%d]' % DEFAULT_SV_PORT)
+    parser.add_argument('-d', '--supervisor-ipaddr', metavar='ip', dest='SUPERVISOR_IP4', default=DEFAULT_SV_IP4, \
+                        help = 'connect to the supervisor on the specified IP address [default=%s]' % DEFAULT_SV_IP4)
 
     parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
                         help='Disable secure communication')

@@ -51,11 +51,11 @@ class Authorization(object):
                     r[user] = roles
         return r
     
-    def check_azn(self, cap_name, user_name):
+    def check_azn(self, cap_dn, user_name):
         """ Checks if the user is allowed to use a given capability """
         if self.security == True:
-            if ((cap_name in self.cr) and (user_name in self.ur)): # Deny unless explicitly allowed in .conf files
-                intersection = self.cr[cap_name] & self.ur[user_name]
+            if ((cap_dn in self.cr) and (user_name in self.ur)): # Deny unless explicitly allowed in .conf files
+                intersection = self.cr[cap_dn] & self.ur[user_name]
                 if len(intersection) > 0:
                     return True
             return False
