@@ -36,12 +36,12 @@ import argparse
 DEFAULT_LISTEN_PORT = 8888
 DEFAULT_LISTEN_IP4 = '127.0.0.1'
 
-REGISTRATION_PATH = "registration"
-SPECIFICATION_PATH = "specification"
-RESULT_PATH = "result"
-S_CAPABILITY_PATH = "s_capability"
-S_SPECIFICATION_PATH = "s_specification"
-S_RESULT_PATH = "s_result"
+REGISTRATION_PATH = "register/capability"
+SPECIFICATION_PATH = "show/specification"
+RESULT_PATH = "register/result"
+S_CAPABILITY_PATH = "show/capability"
+S_SPECIFICATION_PATH = "register/specification"
+S_RESULT_PATH = "show/result"
 
 
 """

@@ -133,16 +133,17 @@ def add_value_to(container, key, value):
         
 def split_stmt_list(msg):
     """
-    Splits an unparsed list of statements (capabilities or specifications) in 
+    Splits a JSON array of statements (capabilities or specifications) in 
     JSON format into a list of single statements
     
     """
     stmts = []
     stmt_start = 0
+    msg = msg[1:-1]
     stmt_end = find_closed_brace(msg, stmt_start)
     while stmt_end != -1:
         stmts.append(mplane.model.parse_json(msg[stmt_start:stmt_end+1]))
-        stmt_start = stmt_end + 1
+        stmt_start = stmt_end + 2
         stmt_end = find_closed_brace(msg, stmt_start)
     return stmts
     

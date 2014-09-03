@@ -34,9 +34,9 @@ from datetime import datetime, timedelta
 
 DEFAULT_SV_PORT = 8888
 DEFAULT_SV_IP4 = '127.0.0.1'
-CAPABILITY_PATH_ELEM = "s_capability"
-S_SPECIFICATION_PATH = "s_specification"
-S_RESULT_PATH = "s_result"
+CAPABILITY_PATH_ELEM = "show/capability"
+S_SPECIFICATION_PATH = "register/specification"
+S_RESULT_PATH = "show/result"
 
 """
 Generic mPlane client for HTTP component-push workflows.

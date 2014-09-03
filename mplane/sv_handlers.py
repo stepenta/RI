@@ -22,15 +22,15 @@ import tornado.web
 import mplane.model
 import mplane.utils
 import copy
+import json
 from collections import OrderedDict
 
-REGISTRATION_PATH = "registration"
-SPECIFICATION_PATH = "specification"
-RESULT_PATH = "result"
-S_CAPABILITY_PATH = "s_capability"
-S_SPECIFICATION_PATH = "s_specification"
-S_RESULT_PATH = "s_result"
-
+REGISTRATION_PATH = "register/capability"
+SPECIFICATION_PATH = "show/specification"
+RESULT_PATH = "register/result"
+S_CAPABILITY_PATH = "show/capability"
+S_SPECIFICATION_PATH = "register/specification"
+S_RESULT_PATH = "show/result"
 
 """
 Set of HTTP handlers used by the supervisor to communicate 
@@ -72,7 +72,7 @@ class MPlaneHandler(tornado.web.RequestHandler):
         self.write(mplane.model.unparse_json(msg))
         self.finish()
     
-    def _respond_text(self, code, text = None):
+    def _respond_plain_text(self, code, text = None):
         """
         Returns an HTTP response containing a plain text message
         
@@ -80,6 +80,17 @@ class MPlaneHandler(tornado.web.RequestHandler):
         self.set_status(code)
         if text is not None:
             self.set_header("Content-Type", "text/plain")
+            self.write(text)
+        self.finish()
+    
+    def _respond_json_text(self, code, text = None):
+        """
+        Returns an HTTP response containing a plain text message
+        
+        """
+        self.set_status(code)
+        if text is not None:
+            self.set_header("Content-Type", "application/x-mplane+json")
             self.write(text)
         self.finish()
                 
@@ -101,29 +112,29 @@ class RegistrationHandler(MPlaneHandler):
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             new_caps = mplane.utils.split_stmt_list(self.request.body.decode("utf-8"))
         else:
-            raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
-
-        success = False
+            self._respond_plain_text(400, "Invalid format")
         
         # register capabilities
+        response = "{"
         for new_cap in new_caps:
             if isinstance(new_cap, mplane.model.Capability):
                 found = False
                 if new_cap.get_label() in self._supervisor._label_to_dn:
                     for dn in self._supervisor._label_to_dn[new_cap.get_label()]:
                         if dn == self.dn:
-                            print("WARNING: Capability " + new_cap.get_label() + " already registered!")
+                            mplane.utils.print_then_prompt(self.dn + " tried to register an already registered Capability: " + new_cap.get_label())
+                            response = response + "\"" + new_cap.get_label() + "\":{\"registered\":\"no\", \"reason\":\"Capability already registered\"},"
                             found = True
                 if found is False:
                     self._supervisor.register(new_cap, self.dn)
                     mplane.utils.print_then_prompt("Capability " + new_cap.get_label() + " received from " + self.dn)
-                    success = True
-                        
+                    response = response + "\"" + new_cap.get_label() + "\":{\"registered\":\"ok\"},"
+            else:
+                response = response + "\"" + new_cap.get_label() + "\":{\"registered\":\"no\", \"reason\":\"Not a capability\"},"
+        response = response[:-1].replace("\n", "") + "}"
+        
         # reply to the component
-        if success == True:
-            self._respond_text(200)
-        else:
-            self._respond_text(403, "Invalid registration format, or capabilities already registered")
+        self._respond_json_text(200, response)
     
 class SpecificationHandler(MPlaneHandler):
     """
@@ -138,16 +149,16 @@ class SpecificationHandler(MPlaneHandler):
 
     def get(self):
         specs = self._supervisor._specifications.pop(self.dn, [])
-        if len(specs) != 0:
-            self.set_status(200)
-            self.set_header("Content-Type", "application/x-mplane+json")
-            for spec in specs:
-                    self.write(mplane.model.unparse_json(spec))
-                    mplane.utils.add_value_to(self._supervisor._receipts, self.dn, mplane.model.Receipt(specification=spec))
-                    mplane.utils.print_then_prompt("Specification " + spec.get_label() + " successfully pulled by " + self.dn)
-            self.finish()
-        else:
-            self._respond_text(204)
+        self.set_status(200)
+        self.set_header("Content-Type", "application/x-mplane+json")
+        msg = "["
+        for spec in specs:
+                msg = msg + mplane.model.unparse_json(spec) + ","
+                mplane.utils.add_value_to(self._supervisor._receipts, self.dn, mplane.model.Receipt(specification=spec))
+                mplane.utils.print_then_prompt("Specification " + spec.get_label() + " successfully pulled by " + self.dn)
+        msg = msg[:-1].replace("\n","") + "]"
+        self.write(msg)
+        self.finish()
         
 class ResultHandler(MPlaneHandler):
     """
@@ -166,20 +177,24 @@ class ResultHandler(MPlaneHandler):
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             msg = mplane.model.parse_json(self.request.body.decode("utf-8"))
         else:
-            raise ValueError("I only know how to handle mPlane JSON messages via HTTP POST")
+            self._respond_plain_text(400, "Invalid format")
             
         if isinstance(msg, mplane.model.Result):
             
             # hand message to supervisor
             if self._supervisor.add_result(msg, self.dn):
                 mplane.utils.print_then_prompt("Result received by " + self.dn)
+                self._respond_plain_text(200)
             else:
-                self._respond_text(403, "Result unexpected")
+                self._respond_plain_text(403, "Unexpected result")
         elif isinstance(msg, mplane.model.Exception):
             
             # hand message to supervisor
             self._supervisor._handle_exception(msg)
+            self._respond_plain_text(200)
             mplane.utils.print_then_prompt("Exception Received! (instead of Result)")
+        else:
+            self._respond_plain_text(400, "Not a result (or exception)")
 
 class S_CapabilityHandler(MPlaneHandler):
     """
@@ -312,7 +327,7 @@ class S_SpecificationHandler(MPlaneHandler):
                         if spec.get_label() == cap.schema.get_label():
                             requested_cap = cap
                     if requested_cap == None:
-                        self._respond_text(403, "This aggregated measure is not available")
+                        self._respond_plain_text(403, "This aggregated measure is not available")
                         return
                     else:
                         
@@ -326,9 +341,9 @@ class S_SpecificationHandler(MPlaneHandler):
                             
                             # check the format of the subnet parameters
                             if len(net_range) != 2:
-                                self._respond_text(403, "Invalid format for parameter \'aggregate.ip4\'")
+                                self._respond_plain_text(403, "Invalid format for parameter \'aggregate.ip4\'")
                             if not mplane.utils.check_ip_format(net_range):
-                                self._respond_text(403, "Invalid format for one or more net addresses")
+                                self._respond_plain_text(403, "Invalid format for one or more net addresses")
                                 return
                             
                             # create the list of components included in the range of subnets requested
@@ -346,7 +361,7 @@ class S_SpecificationHandler(MPlaneHandler):
                             
                             # check the format of the subnet parameters
                             if not mplane.utils.check_ip_format(net_list):
-                                self._respond_text(403, "Invalid format for one or more net addresses")
+                                self._respond_plain_text(403, "Invalid format for one or more net addresses")
                                 return
                                 
                             # create the list of components included in the range of subnets requested
@@ -363,7 +378,7 @@ class S_SpecificationHandler(MPlaneHandler):
                             # check the format of the subnet
                             net = subnets
                             if not mplane.utils.check_ip_format(net):
-                                self._respond_text(403, "Invalid format for one or more net addresses" + net)
+                                self._respond_plain_text(403, "Invalid format for one or more net addresses" + net)
                                 return
                                 
                             # check if the subnet is allowed for the client
@@ -374,7 +389,7 @@ class S_SpecificationHandler(MPlaneHandler):
                         
                         # no subnets allowed
                         if len(dn_to_be_run) == 0:
-                            self._respond_text(403, "No valid IP addresses requested. Specification rejected")
+                            self._respond_plain_text(403, "No valid IP addresses requested. Specification rejected")
                             return
                             
                         self._supervisor._aggregated_meas[receipt.get_token()] = [spec.get_label(), dn_to_be_run, res, receipt, requested_cap.dn_to_nets]   
@@ -391,7 +406,7 @@ class S_SpecificationHandler(MPlaneHandler):
                             
                             # enqueue the specification
                             if not self._supervisor.add_spec(replica, dn):
-                                self._respond_text(503, "Specification is temporarily unavailable. Try again later")
+                                self._respond_plain_text(503, "Specification is temporarily unavailable. Try again later")
                                 return     
                 else:
                     # if it's a single capability
@@ -403,11 +418,11 @@ class S_SpecificationHandler(MPlaneHandler):
                             if self._supervisor.ac.check_azn(cap_id, self.dn):
                                 probe_dn = dn
                     if probe_dn is None:
-                        self._respond_text(503, "Specification is unavailable. The component for the requested measure was not found")
+                        self._respond_plain_text(503, "Specification is unavailable. The component for the requested measure was not found")
                         
                     # enqueue the specification
                     if not self._supervisor.add_spec(spec, dn):
-                        self._respond_text(503, "Specification is temporarily unavailable. Try again later")
+                        self._respond_plain_text(503, "Specification is temporarily unavailable. Try again later")
                         return
                         
                 # return the receipt to the client        

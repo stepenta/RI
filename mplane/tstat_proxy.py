@@ -30,13 +30,14 @@ from urllib3 import HTTPConnectionPool
 import argparse
 import sys
 import re
+import json
 
 DEFAULT_IP4_NET = "192.168.1.0/24"
 DEFAULT_SUPERVISOR_IP4 = '127.0.0.1'
 DEFAULT_SUPERVISOR_PORT = 8888
-REGISTRATION_PATH = "registration"
-SPECIFICATION_PATH = "specification"
-RESULT_PATH = "result"
+REGISTRATION_PATH = "register/capability"
+SPECIFICATION_PATH = "show/specification"
+RESULT_PATH = "register/result"
 
 
 """
@@ -257,7 +258,6 @@ class HttpProbe():
     """
     
     def __init__(self, immediate_ms = 5000):
-        self.spec_path = "/" + SPECIFICATION_PATH
         parse_args()
         
         # check if security is enabled, if so read certificate files
@@ -291,10 +291,11 @@ class HttpProbe():
         url = "/" + REGISTRATION_PATH
         
         # generate the capability list
-        caps_list = ""
+        caps_list = "["
         for key in self.scheduler.capability_keys():  
             cap = self.scheduler.capability_for_key(key)
-            caps_list = caps_list + mplane.model.unparse_json(cap)
+            caps_list = caps_list + mplane.model.unparse_json(cap) + ","
+        caps_list = caps_list[:-1].replace("\n","") + "]"
         connected = False
         
         # send the list to the supervisor, if reachable
@@ -310,10 +311,14 @@ class HttpProbe():
                 
         # handle response message
         if res.status == 200:
-            print("Capabilities successfully registered:")
-            for key in self.scheduler.capability_keys():  
-                cap = self.scheduler.capability_for_key(key)
-                print("    " + cap.get_label())
+            test = json.loads(res.data.decode("utf-8"))
+            print("\nCapability registration outcome:")
+            for key in test:
+                if test[key]['registered'] == "ok":
+                    print(key + ": Ok")
+                else:
+                    print(key + ": Failed (" + test[key]['reason'] + ")")
+            print("")
         else:
             print("Error registering capabilities, Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))
             exit(1)
@@ -323,24 +328,23 @@ class HttpProbe():
         Poll the supervisor for specifications
         
         """
+        url = "/" + SPECIFICATION_PATH
         
-        # send a request for each capability
-        for token in self.scheduler.capability_keys():
-            res = self.pool.request('GET', self.spec_path)
-            if res.status == 200:
+        # send a request for specifications
+        res = self.pool.request('GET', url)
+        if res.status == 200:
+            
+            # specs retrieved: split them if there is more than one
+            specs = mplane.utils.split_stmt_list(res.data.decode("utf-8"))
+            for spec in specs:
                 
-                # specs retrieved: split them if there is more than one
-                msg = res.data.decode("utf-8")
-                specs = mplane.utils.split_stmt_list(msg)
-                for spec in specs:
-                    
-                    # hand spec to scheduler
-                    reply = self.scheduler.receive_message(spec)
-                    job = self.scheduler.job_for_message(reply)
-                    
-                    # launch a thread to monitor the status of the running measurement
-                    t = threading.Thread(target=self.return_results, args=[job])
-                    t.start()
+                # hand spec to scheduler
+                reply = self.scheduler.receive_message(spec)
+                job = self.scheduler.job_for_message(reply)
+                
+                # launch a thread to monitor the status of the running measurement
+                t = threading.Thread(target=self.return_results, args=[job])
+                t.start()
         pass
     
     def return_results(self, job):
