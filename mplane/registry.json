@@ -878,6 +878,42 @@
     {
       "name": "aggregate.ip4",
       "prim": "string"
+    },
+    {
+      "name": "destination.ip",
+      "prim": "address"
+    },
+    {
+      "name": "delay.twoway",
+      "prim": "natural"
+    },
+    {
+      "name": "delay.twoway.min",
+      "prim": "natural"
+    },
+    {
+      "name": "delay.twoway.max",
+      "prim": "natural"
+    },
+    {
+      "name": "delay.twoway.mean",
+      "prim": "natural"
+    },
+    {
+      "name": "number",
+      "prim": "natural"
+    },
+    {
+      "name": "System_type",
+      "prim": "string"
+    },
+    {
+      "name": "System_ID",
+      "prim": "string"
+    },
+    {
+      "name": "System_version",
+      "prim": "string"
     }
   ]
 }
