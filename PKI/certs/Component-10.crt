@@ -1,0 +1,72 @@
+Certificate:
+    Data:
+        Version: 3 (0x2)
+        Serial Number: 14 (0xe)
+    Signature Algorithm: sha1WithRSAEncryption
+        Issuer: DC=org, DC=mplane, O=PKI, OU=Signing-CA, CN=Signing-CA-1
+        Validity
+            Not Before: Sep  8 10:27:24 2014 GMT
+            Not After : Sep  7 10:27:24 2016 GMT
+        Subject: DC=org, DC=mplane, O=PKI, OU=Components, CN=Component-10
+        Subject Public Key Info:
+            Public Key Algorithm: rsaEncryption
+                Public-Key: (1024 bit)
+                Modulus:
+                    00:c0:f3:d4:72:1f:8a:9a:c2:5d:4f:3b:f6:a7:a4:
+                    89:5c:2e:4e:b0:82:59:a0:aa:e0:30:49:9b:13:7f:
+                    d4:29:77:9e:52:28:65:15:28:ea:b8:ff:0f:90:e8:
+                    ef:f0:24:3f:d2:9e:a6:ac:fa:d0:94:05:0e:bc:a6:
+                    ce:79:9f:5a:e6:39:44:d5:ff:cf:1c:6c:6c:7c:60:
+                    2d:fe:5a:0e:e3:ca:bc:55:37:d5:87:ce:f9:09:de:
+                    df:fd:ef:3e:38:9e:76:c6:01:cb:f1:bc:ec:4f:8f:
+                    e4:ec:22:22:84:50:0c:c2:0a:73:a5:cc:85:84:60:
+                    b4:47:8b:11:c8:bc:64:27:4f
+                Exponent: 65537 (0x10001)
+        X509v3 extensions:
+            X509v3 Key Usage: critical
+                Digital Signature, Key Encipherment
+            X509v3 Basic Constraints: 
+                CA:FALSE
+            X509v3 Extended Key Usage: 
+                E-mail Protection, TLS Web Client Authentication
+            X509v3 Subject Key Identifier: 
+                52:81:86:EF:80:08:FA:30:AF:72:79:BC:AF:3B:58:44:35:C6:74:69
+            X509v3 Authority Key Identifier: 
+                keyid:4E:17:4E:AA:91:D1:41:4F:AD:04:AD:19:AB:5B:B3:A0:18:3B:DD:96
+
+    Signature Algorithm: sha1WithRSAEncryption
+         46:b2:9e:25:25:b9:13:52:5d:28:87:35:91:7b:16:20:ae:e9:
+         f6:81:f6:e6:49:4e:09:f0:ba:c1:16:e4:5b:11:85:b9:a3:96:
+         04:4a:c0:70:87:19:f6:a7:b5:81:89:92:66:67:ab:3e:7d:0b:
+         ba:9c:e0:94:72:22:71:56:95:7a:d8:d3:7d:6d:a0:0b:85:55:
+         6f:5b:89:eb:16:b3:f8:cf:f9:50:b6:75:f4:ab:cf:36:2f:ab:
+         a8:bd:3a:b7:a3:bb:c5:12:1f:d5:b3:f5:9e:f7:9b:a6:df:23:
+         db:06:51:6f:f7:6f:6f:58:2f:5d:fc:ef:86:3d:b2:57:6c:b4:
+         a2:4f:40:92:ee:68:e4:6e:2c:de:b4:c8:ea:88:98:0a:4c:e7:
+         75:fe:87:a2:7a:e3:aa:96:52:51:01:0b:1a:71:5b:f6:fc:d5:
+         6e:38:57:23:60:62:1a:b0:7a:98:92:4c:7c:3c:db:88:b2:6e:
+         b0:9f:20:e4:c5:12:79:81:69:12:a6:73:6e:14:c9:f2:ef:61:
+         3b:c4:ba:e1:48:d4:72:22:48:7d:61:be:e1:16:aa:36:7e:f3:
+         e0:f7:8f:06:29:06:75:74:65:a2:a4:6d:cd:7e:2c:74:17:af:
+         64:64:49:d2:1b:70:3e:1c:15:f3:00:b8:a6:bd:d9:9d:bb:dd:
+         47:ba:a5:76
+-----BEGIN CERTIFICATE-----
+MIIDQTCCAimgAwIBAgIBDjANBgkqhkiG9w0BAQUFADBnMRMwEQYKCZImiZPyLGQB
+GRYDb3JnMRYwFAYKCZImiZPyLGQBGRYGbXBsYW5lMQwwCgYDVQQKDANQS0kxEzAR
+BgNVBAsMClNpZ25pbmctQ0ExFTATBgNVBAMMDFNpZ25pbmctQ0EtMTAeFw0xNDA5
+MDgxMDI3MjRaFw0xNjA5MDcxMDI3MjRaMGcxEzARBgoJkiaJk/IsZAEZFgNvcmcx
+FjAUBgoJkiaJk/IsZAEZFgZtcGxhbmUxDDAKBgNVBAoMA1BLSTETMBEGA1UECwwK
+Q29tcG9uZW50czEVMBMGA1UEAwwMQ29tcG9uZW50LTEwMIGfMA0GCSqGSIb3DQEB
+AQUAA4GNADCBiQKBgQDA89RyH4qawl1PO/anpIlcLk6wglmgquAwSZsTf9Qpd55S
+KGUVKOq4/w+Q6O/wJD/Snqas+tCUBQ68ps55n1rmOUTV/88cbGx8YC3+Wg7jyrxV
+N9WHzvkJ3t/97z44nnbGAcvxvOxPj+TsIiKEUAzCCnOlzIWEYLRHixHIvGQnTwID
+AQABo3wwejAOBgNVHQ8BAf8EBAMCBaAwCQYDVR0TBAIwADAdBgNVHSUEFjAUBggr
+BgEFBQcDBAYIKwYBBQUHAwIwHQYDVR0OBBYEFFKBhu+ACPowr3J5vK87WEQ1xnRp
+MB8GA1UdIwQYMBaAFE4XTqqR0UFPrQStGatbs6AYO92WMA0GCSqGSIb3DQEBBQUA
+A4IBAQBGsp4lJbkTUl0ohzWRexYgrun2gfbmSU4J8LrBFuRbEYW5o5YESsBwhxn2
+p7WBiZJmZ6s+fQu6nOCUciJxVpV62NN9baALhVVvW4nrFrP4z/lQtnX0q882L6uo
+vTq3o7vFEh/Vs/We95um3yPbBlFv929vWC9d/O+GPbJXbLSiT0CS7mjkbizetMjq
+iJgKTOd1/oeieuOqllJRAQsacVv2/NVuOFcjYGIasHqYkkx8PNuIsm6wnyDkxRJ5
+gWkSpnNuFMny72E7xLrhSNRyIkh9Yb7hFqo2fvPg948GKQZ1dGWipG3Nfix0F69k
+ZEnSG3A+HBXzALimvdmdu91HuqV2
+-----END CERTIFICATE-----
