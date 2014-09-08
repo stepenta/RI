@@ -23,7 +23,6 @@ import mplane.utils
 import sys
 import cmd
 import readline
-import html.parser
 import urllib3
 from urllib3 import HTTPSConnectionPool
 from urllib3 import HTTPConnectionPool
@@ -34,7 +33,7 @@ from datetime import datetime, timedelta
 
 DEFAULT_SV_PORT = 8888
 DEFAULT_SV_IP4 = '127.0.0.1'
-CAPABILITY_PATH_ELEM = "show/capability"
+S_CAPABILITY_PATH = "show/capability"
 S_SPECIFICATION_PATH = "register/specification"
 S_RESULT_PATH = "show/result"
 
@@ -42,22 +41,6 @@ S_RESULT_PATH = "show/result"
 Generic mPlane client for HTTP component-push workflows.
 
 """
-
-class CrawlParser(html.parser.HTMLParser):
-    """
-    HTML parser class to extract all URLS in a href attributes in
-    an HTML page. Used to extract links to Capabilities exposed
-    as link collections.
-
-    """
-    def __init__(self, **kwargs):
-        super(CrawlParser, self).__init__(**kwargs)
-        self.urls = []
-
-    def handle_starttag(self, tag, attrs):
-        attrs = {k: v for (k,v) in attrs}
-        if tag == "a" and "href" in attrs:
-            self.urls.append(attrs["href"])
 
 class HttpClient(object):
     """
@@ -69,16 +52,9 @@ class HttpClient(object):
     Caches retrieved Capabilities, Receipts, and Results.
 
     """
-    def __init__(self, security, posturl, capurl=None, certfile=None):
+    def __init__(self, security, posturl, certfile=None):
         # store urls
         self._posturl = posturl
-        if capurl is not None:
-            if capurl[0] != "/": 
-                self._capurl = "/" + capurl 
-            else: 
-                self._capurl = capurl 
-        else: 
-            self._capurl = "/" + CAPABILITY_PATH_ELEM 
         url = urllib3.util.parse_url(posturl) 
 
         if security == True: 
@@ -92,7 +68,7 @@ class HttpClient(object):
         else: 
             self.pool = HTTPConnectionPool(url.host, url.port) 
 
-        print("new client: "+self._posturl+" "+self._capurl)
+        print("new client: "+self._posturl)
 
         # empty capability and measurement lists
         self._capabilities = []
@@ -163,27 +139,24 @@ class HttpClient(object):
         """Clear the capability cache"""
         self._capabilities.clear()
 
-    def retrieve_capabilities(self, listurl=None):
+    def retrieve_capabilities(self):
         """
         Given a URL, retrieves an object, parses it as an HTML page, 
         extracts links to capabilities, and retrieves and processes them
         into the capability cache.
 
         """
-        if listurl is None:
-            listurl = self._capurl
-            self.clear_capabilities()
+        self.clear_capabilities()
+        url = "/" + S_CAPABILITY_PATH
 
-        print("getting capabilities from "+self._capurl)
-        res = self.pool.request('GET', self._capurl)
+        print("getting capabilities from " + url)
+        res = self.pool.request('GET', url)
         if res.status == 200:
-            parser = CrawlParser(strict=False)
-            parser.feed(res.data.decode("utf-8"))
-            parser.close()
-            for capurl in parser.urls:
-                self.handle_message(self.get_mplane_reply(capurl))
+            caps = mplane.utils.split_stmt_list(res.data.decode("utf-8"))
+            for cap in caps:
+                self.handle_message(cap)
         else:
-            print(listurl+": "+str(res.status))
+            print("Supervisor returned: " + str(res.status) + " - " + res.data.decode("utf-8"))
        
     def receipts(self):
         """Iterate over receipts (pending measurements)"""
@@ -267,20 +240,17 @@ class ClientShell(cmd.Cmd):
             args = arg.split()
             # get the requested url for the probe or supervisor
             if len(args) >= 1:
-                supvsr_url = args[0]
-            # get the requested 
-            if len(args) > 1:
-                capurl = args[1]     
+                supvsr_url = args[0] 
 
         proto = supvsr_url.split('://')[0]
         if proto == 'http':
             ## force https in case security is available
             if self._certfile:
                 supvsr_url = 'https://' + supvsr_url.split('://')[1]
-            self._client = HttpClient(False, supvsr_url, capurl)
+            self._client = HttpClient(False, supvsr_url)
         elif proto == 'https':
             if self._certfile is not None:
-                self._client = HttpClient(True, supvsr_url, capurl, self._certfile)
+                self._client = HttpClient(True, supvsr_url, self._certfile)
             else:
                 raise SyntaxError("For https, need to specify the --certfile parameter when launching the client")
         else:

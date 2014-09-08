@@ -189,7 +189,6 @@ class HttpSupervisor(object):
                 (r"/" + SPECIFICATION_PATH, mplane.sv_handlers.SpecificationHandler, {'supervisor': self}),
                 (r"/" + RESULT_PATH, mplane.sv_handlers.ResultHandler, {'supervisor': self}),
                 (r"/" + S_CAPABILITY_PATH, mplane.sv_handlers.S_CapabilityHandler, {'supervisor': self}),
-                (r"/" + S_CAPABILITY_PATH + "/.*", mplane.sv_handlers.S_CapabilityHandler, {'supervisor': self}),
                 (r"/" + S_SPECIFICATION_PATH, mplane.sv_handlers.S_SpecificationHandler, {'supervisor': self}),
                 (r"/" + S_RESULT_PATH, mplane.sv_handlers.S_ResultHandler, {'supervisor': self}),
             ])
@@ -214,6 +213,7 @@ class HttpSupervisor(object):
         # run the server   
         http_server.listen(args.LISTEN_PORT, args.LISTEN_IP4)
         t = Thread(target=listen_in_background)
+        t.setDaemon(True)
         t.start()
 
         print("new Supervisor: "+str(args.LISTEN_IP4)+":"+str(args.LISTEN_PORT))
@@ -707,6 +707,11 @@ class SupervisorShell(cmd.Cmd):
                 del self._defaults[key]
         except:
             print("Couldn't unset default(s) "+arg)
+            
+    def do_exit(self, arg): 
+        """Exits from this shell"""
+        
+        return True
     
 if __name__ == "__main__":
     mplane.model.initialize_registry()
