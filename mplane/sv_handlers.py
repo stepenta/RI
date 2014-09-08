@@ -107,6 +107,11 @@ class RegistrationHandler(MPlaneHandler):
 
     def post(self):
         
+        # check the class of the certificate (Client, Component, Supervisor).
+        # this function can only be used by components
+        if self.dn.find("Components") == -1:
+            self._respond_plain_text(401, "Not Authorized. Only Components can use this function")
+        
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             new_caps = mplane.utils.split_stmt_list(self.request.body.decode("utf-8"))
@@ -147,6 +152,12 @@ class SpecificationHandler(MPlaneHandler):
         self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
 
     def get(self):
+        
+        # check the class of the certificate (Client, Component, Supervisor).
+        # this function can only be used by components
+        if self.dn.find("Components") == -1:
+            self._respond_plain_text(401, "Not Authorized. Only Components can use this function")
+            
         specs = self._supervisor._specifications.pop(self.dn, [])
         self.set_status(200)
         self.set_header("Content-Type", "application/x-mplane+json")
@@ -171,6 +182,11 @@ class ResultHandler(MPlaneHandler):
         self._supervisor._dn_to_ip[self.dn] = self.request.remote_ip
 
     def post(self):
+        
+        # check the class of the certificate (Client, Component, Supervisor).
+        # this function can only be used by components
+        if self.dn.find("Components") == -1:
+            self._respond_plain_text(401, "Not Authorized. Only Components can use this function")
         
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
@@ -212,6 +228,11 @@ class S_CapabilityHandler(MPlaneHandler):
         in the form of a JSON array of Capabilities
         
         """
+        
+        # check the class of the certificate (Client, Component, Supervisor).
+        # this function can only be used by clients
+        if self.dn.find("Clients") == -1:
+            self._respond_plain_text(401, "Not Authorized. Only Clients can use this function")
         
         # set HTML headers
         self.set_status(200)
@@ -280,6 +301,12 @@ class S_SpecificationHandler(MPlaneHandler):
         self.dn = get_dn(self._supervisor, self.request)
     
     def post(self):
+        
+        # check the class of the certificate (Client, Component, Supervisor).
+        # this function can only be used by clients
+        if self.dn.find("Clients") == -1:
+            self._respond_plain_text(401, "Not Authorized. Only Clients can use this function")
+            
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             spec = mplane.model.parse_json(self.request.body.decode("utf-8"))
@@ -415,6 +442,11 @@ class S_ResultHandler(MPlaneHandler):
     
     def post(self):
         
+        # check the class of the certificate (Client, Component, Supervisor).
+        # this function can only be used by clients
+        if self.dn.find("Clients") == -1:
+            self._respond_plain_text(401, "Not Authorized. Only Clients can use this function")
+            
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             rec = mplane.model.parse_json(self.request.body.decode("utf-8"))
