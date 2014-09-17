@@ -311,13 +311,13 @@ class HttpProbe():
                 
         # handle response message
         if res.status == 200:
-            test = json.loads(res.data.decode("utf-8"))
+            body = json.loads(res.data.decode("utf-8"))
             print("\nCapability registration outcome:")
-            for key in test:
-                if test[key]['registered'] == "ok":
+            for key in body:
+                if body[key]['registered'] == "ok":
                     print(key + ": Ok")
                 else:
-                    print(key + ": Failed (" + test[key]['reason'] + ")")
+                    print(key + ": Failed (" + body[key]['reason'] + ")")
             print("")
         else:
             print("Error registering capabilities, Supervisor said: " + str(res.status) + " - " + res.data.decode("utf-8"))

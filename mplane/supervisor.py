@@ -62,7 +62,9 @@ def parse_args():
                         help = 'run the service on the specified port [default=%d]' % DEFAULT_LISTEN_PORT)
     parser.add_argument('-s', '--listen-ipaddr', metavar='ip', dest='LISTEN_IP4', default=DEFAULT_LISTEN_IP4, \
                         help = 'run the service on the specified IP address [default=%s]' % DEFAULT_LISTEN_IP4)
-
+    parser.add_argument('--enable-aggr', action='store_true', default=False, dest='ENABLE_AGGR',
+                        help='Enable aggregation of capabilities (experimental, probably has compatibility issues)')
+                        
     parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
                         help='Disable secure communication')
     parser.add_argument('-c', '--certfile', metavar="path", default=None, dest='CERTFILE',
@@ -73,7 +75,6 @@ def parse_args():
         print('\nerror: missing -c|--certfile option\n')
         parser.print_help()
         sys.exit(1)
-        #raise ValueError("Need --logdir and --fileconf as parameters")
 
 def listen_in_background():
     """
@@ -194,7 +195,7 @@ class HttpSupervisor(object):
             ])
             
         # check if security is enabled, if so read certificate files
-        self._sec = not args.DISABLE_SEC    
+        self._sec = not args.DISABLE_SEC   
         if self._sec == True:
             self.ac = mplane.sec.Authorization(self._sec)
             self.base_url = "https://" + args.LISTEN_IP4 + ":" + str(args.LISTEN_PORT) + "/"
@@ -218,6 +219,7 @@ class HttpSupervisor(object):
 
         print("new Supervisor: "+str(args.LISTEN_IP4)+":"+str(args.LISTEN_PORT))
 
+        self._aggregate = args.ENABLE_AGGR        
         # structures for storing Capabilities, Specifications and Results
         self._capabilities = OrderedDict()   # non-aggregated capabilities
         self._aggregated_caps = []           # aggregated capabilities
@@ -235,6 +237,19 @@ class HttpSupervisor(object):
         when possible, and stores the new information in the corresponding structures
         """
         
+        # stores the association Label - DN
+        label = cap.get_label()
+        mplane.utils.add_value_to(self._label_to_dn, label, dn)
+
+        # checks if aggregation is active, if not just register capability
+        # or
+        # if there are no "subnet.ip" and "subnet.mask" parameters
+        # in the capability, it cannot be aggregated
+        if (self._aggregate == False or
+            (subnet_ip4 == -1 and subnet_mask == -1)):
+            mplane.utils.add_value_to(self._capabilities, dn, cap)
+            return
+        
         # retrieves information on subnet address and netmask
         net_info = get_net_info(cap)
         if net_info is not None:
@@ -243,16 +258,6 @@ class HttpSupervisor(object):
         else:
             subnet_ip4 = -1
             subnet_mask = -1
-        
-        # stores the association Label - DN
-        label = cap.get_label()
-        mplane.utils.add_value_to(self._label_to_dn, label, dn)
-           
-        # if there are no "subnet.ip" and "subnet.mask" parameters
-        # in the capability, it cannot be aggregated
-        if (subnet_ip4 == -1 and subnet_mask == -1):
-            mplane.utils.add_value_to(self._capabilities, dn, cap)
-            return
                 
         # here starts the aggregation process
         aggregation_success = False

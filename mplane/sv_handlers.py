@@ -22,6 +22,7 @@ import tornado.web
 import mplane.model
 import mplane.utils
 import copy
+import json
 from collections import OrderedDict
 
 REGISTRATION_PATH = "register/capability"
@@ -111,12 +112,14 @@ class RegistrationHandler(MPlaneHandler):
         # this function can only be used by components
         if self.dn.find("Components") == -1:
             self._respond_plain_text(401, "Not Authorized. Only Components can use this function")
+            return
         
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             new_caps = mplane.utils.split_stmt_list(self.request.body.decode("utf-8"))
         else:
             self._respond_plain_text(400, "Invalid format")
+            return
         
         # register capabilities
         response = "{"
@@ -139,6 +142,7 @@ class RegistrationHandler(MPlaneHandler):
         
         # reply to the component
         self._respond_json_text(200, response)
+        return
     
 class SpecificationHandler(MPlaneHandler):
     """
@@ -157,6 +161,7 @@ class SpecificationHandler(MPlaneHandler):
         # this function can only be used by components
         if self.dn.find("Components") == -1:
             self._respond_plain_text(401, "Not Authorized. Only Components can use this function")
+            return
             
         specs = self._supervisor._specifications.pop(self.dn, [])
         self.set_status(200)
@@ -187,12 +192,14 @@ class ResultHandler(MPlaneHandler):
         # this function can only be used by components
         if self.dn.find("Components") == -1:
             self._respond_plain_text(401, "Not Authorized. Only Components can use this function")
+            return
         
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
             msg = mplane.model.parse_json(self.request.body.decode("utf-8"))
         else:
             self._respond_plain_text(400, "Invalid format")
+            return
             
         if isinstance(msg, mplane.model.Result):
             
@@ -200,16 +207,20 @@ class ResultHandler(MPlaneHandler):
             if self._supervisor.add_result(msg, self.dn):
                 mplane.utils.print_then_prompt("Result received by " + self.dn)
                 self._respond_plain_text(200)
+                return
             else:
                 self._respond_plain_text(403, "Unexpected result")
+                return
         elif isinstance(msg, mplane.model.Exception):
             
             # hand message to supervisor
             self._supervisor._handle_exception(msg)
             self._respond_plain_text(200)
             mplane.utils.print_then_prompt("Exception Received! (instead of Result)")
+            return
         else:
             self._respond_plain_text(400, "Not a result (or exception)")
+            return
 
 class S_CapabilityHandler(MPlaneHandler):
     """
@@ -233,27 +244,32 @@ class S_CapabilityHandler(MPlaneHandler):
         # this function can only be used by clients
         if self.dn.find("Clients") == -1:
             self._respond_plain_text(401, "Not Authorized. Only Clients can use this function")
+            return
         
         # set HTML headers
         self.set_status(200)
         self.set_header("Content-Type", "application/x-mplane+json")
-        msg = "["
+        msg = "{"
         
         # list single capabilities
         for key in self._supervisor._capabilities:
+            msg = msg + "\"" + key + "\":["
             for cap in self._supervisor._capabilities[key]:
                 cap_id = cap.get_label() + ", " + key
                 if self._supervisor.ac.check_azn(cap_id, self.dn):
                     msg = msg + mplane.model.unparse_json(cap) + ","
-                    
-        # list aggregated capabilities
-        for cap in self._supervisor._aggregated_caps:
-            for dn in cap.dn_list:
-                label = cap.schema.get_label()
-                cap_id = label + ", " + dn
-                if self._supervisor.ac.check_azn(cap_id, self.dn):
-                    msg = msg + mplane.model.unparse_json(self.filter_aggregated_capability(cap)) + ","            
-        msg = msg[:-1].replace("\n","") + "]"
+            msg = msg[:-1].replace("\n","") + "],"
+        
+        if self._supervisor._aggregate:            
+            # list aggregated capabilities 
+            # (this is not compatible with the listing by DN used for single capabilities)
+            for cap in self._supervisor._aggregated_caps:
+                for dn in cap.dn_list:
+                    label = cap.schema.get_label()
+                    cap_id = label + ", " + dn
+                    if self._supervisor.ac.check_azn(cap_id, self.dn):
+                        msg = msg + mplane.model.unparse_json(self.filter_aggregated_capability(cap)) + ","            
+        msg = msg[:-1].replace("\n","") + "}"
         self.write(msg)
         self.finish()
 
@@ -306,128 +322,135 @@ class S_SpecificationHandler(MPlaneHandler):
         # this function can only be used by clients
         if self.dn.find("Clients") == -1:
             self._respond_plain_text(401, "Not Authorized. Only Clients can use this function")
+            return
             
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
-            spec = mplane.model.parse_json(self.request.body.decode("utf-8"))
-            if isinstance(spec, mplane.model.Specification):
-                receipt = mplane.model.Receipt(specification=spec)
-                res = mplane.model.Result(specification=spec)
+            j_spec = json.loads(self.request.body.decode("utf-8"))
+            
+            # get DN and specification (only one, then this for cycle breaks)
+            for key in j_spec:
+                probe_dn = key
+                spec = mplane.model.parse_json(json.dumps(j_spec[probe_dn]))
                 
-                # if it's an aggregated capability
-                if spec.has_parameter("aggregate.ip4"):
+                if isinstance(spec, mplane.model.Specification):
+                    receipt = mplane.model.Receipt(specification=spec)
+                    res = mplane.model.Result(specification=spec)
                     
-                    # find the requested capability
-                    requested_cap = None
-                    for cap in self._supervisor._aggregated_caps:
-                        if spec.get_label() == cap.schema.get_label():
-                            requested_cap = cap
-                    if requested_cap == None:
-                        self._respond_plain_text(403, "This aggregated measure doesn't exist")
-                        return
+                    if not spec.has_parameter("aggregate.ip4"):
+                        
+                        # if it's a single capability
+                        if spec.get_label() not in self._supervisor._label_to_dn:
+                            self._respond_plain_text(403, "This measure doesn't exist")
+                            return
+                        if probe_dn not in self._supervisor._dn_to_ip:
+                            self._respond_plain_text(503, "Specification is unavailable. The component for the requested measure was not found")
+                            return
+                            
+                        # enqueue the specification
+                        if not self._supervisor.add_spec(spec, probe_dn):
+                            self._respond_plain_text(503, "Specification is temporarily unavailable. Try again later")
+                            return
+                          
+                    # if it's an aggregated capability 
+                    # (not working with the new message format)
                     else:
                         
-                        # extract the requested subnets from the specification sent by the client
-                        subnets = spec.get_parameter_value("aggregate.ip4")
-                        dn_to_be_run = []
-                        
-                        # requested a measure for a RANGE of subnets
-                        if subnets.find(" ... ") >= 0:
-                            net_range = subnets.split(" ... ")
+                        # find the requested capability
+                        requested_cap = None
+                        for cap in self._supervisor._aggregated_caps:
+                            if spec.get_label() == cap.schema.get_label():
+                                requested_cap = cap
+                        if requested_cap == None:
+                            self._respond_plain_text(403, "This aggregated measure doesn't exist")
+                            return
+                        else:
                             
-                            # check the format of the subnet parameters
-                            if len(net_range) != 2:
-                                self._respond_plain_text(400, "Invalid format for parameter \'aggregate.ip4\'")
-                            if not mplane.utils.check_ip_format(net_range):
-                                self._respond_plain_text(400, "Invalid format for one or more net addresses")
-                                return
+                            # extract the requested subnets from the specification sent by the client
+                            subnets = spec.get_parameter_value("aggregate.ip4")
+                            dn_to_be_run = []
                             
-                            # create the list of components included in the range of subnets requested
-                            # filter the subnets for which the client is not allowed
-                            for dn in requested_cap.dn_list:
-                                mask = requested_cap.netmask
-                                if (mplane.utils.get_distance(net_range[0], mask, requested_cap.dn_to_nets[dn], mask) >= 0 and
-                                    mplane.utils.get_distance(net_range[1], mask, requested_cap.dn_to_nets[dn], mask) <= 0):
-                                    if self._supervisor.ac.check_azn(spec.get_label() + ", " + dn, self.dn):
-                                        dn_to_be_run.append(dn)
-                                        
-                        # requested a measure for a SET of subnets
-                        elif subnets.find(",") >= 0:
-                            net_list = subnets.split(",")
-                            
-                            # check the format of the subnet parameters
-                            if not mplane.utils.check_ip_format(net_list):
-                                self._respond_plain_text(400, "Invalid format for one or more net addresses")
-                                return
+                            # requested a measure for a RANGE of subnets
+                            if subnets.find(" ... ") >= 0:
+                                net_range = subnets.split(" ... ")
                                 
-                            # create the list of components included in the range of subnets requested
-                            # filter the subnets for which the client is not allowed
-                            for net in net_list:
+                                # check the format of the subnet parameters
+                                if len(net_range) != 2:
+                                    self._respond_plain_text(400, "Invalid format for parameter \'aggregate.ip4\'")
+                                    return
+                                if not mplane.utils.check_ip_format(net_range):
+                                    self._respond_plain_text(400, "Invalid format for one or more net addresses")
+                                    return
+                                
+                                # create the list of components included in the range of subnets requested
+                                # filter the subnets for which the client is not allowed
+                                for dn in requested_cap.dn_list:
+                                    mask = requested_cap.netmask
+                                    if (mplane.utils.get_distance(net_range[0], mask, requested_cap.dn_to_nets[dn], mask) >= 0 and
+                                        mplane.utils.get_distance(net_range[1], mask, requested_cap.dn_to_nets[dn], mask) <= 0):
+                                        if self._supervisor.ac.check_azn(spec.get_label() + ", " + dn, self.dn):
+                                            dn_to_be_run.append(dn)
+                                            
+                            # requested a measure for a SET of subnets
+                            elif subnets.find(",") >= 0:
+                                net_list = subnets.split(",")
+                                
+                                # check the format of the subnet parameters
+                                if not mplane.utils.check_ip_format(net_list):
+                                    self._respond_plain_text(400, "Invalid format for one or more net addresses")
+                                    return
+                                    
+                                # create the list of components included in the range of subnets requested
+                                # filter the subnets for which the client is not allowed
+                                for net in net_list:
+                                    for dn in requested_cap.dn_list:
+                                        if net == requested_cap.dn_to_nets[dn]:
+                                            if self._supervisor.ac.check_azn(spec.get_label() + ", " + dn, self.dn):
+                                                dn_to_be_run.append(dn)
+                                                
+                            # only one subnet requested                        
+                            else:
+                                
+                                # check the format of the subnet
+                                net = subnets
+                                if not mplane.utils.check_ip_format(net):
+                                    self._respond_plain_text(400, "Invalid format for one or more net addresses" + net)
+                                    return
+                                    
+                                # check if the subnet is allowed for the client
                                 for dn in requested_cap.dn_list:
                                     if net == requested_cap.dn_to_nets[dn]:
                                         if self._supervisor.ac.check_azn(spec.get_label() + ", " + dn, self.dn):
                                             dn_to_be_run.append(dn)
-                                            
-                        # only one subnet requested                        
-                        else:
                             
-                            # check the format of the subnet
-                            net = subnets
-                            if not mplane.utils.check_ip_format(net):
-                                self._respond_plain_text(400, "Invalid format for one or more net addresses" + net)
+                            # no subnets allowed
+                            if len(dn_to_be_run) == 0:
+                                self._respond_plain_text(400, "No valid IP addresses requested. Specification rejected")
                                 return
                                 
-                            # check if the subnet is allowed for the client
-                            for dn in requested_cap.dn_list:
-                                if net == requested_cap.dn_to_nets[dn]:
-                                    if self._supervisor.ac.check_azn(spec.get_label() + ", " + dn, self.dn):
-                                        dn_to_be_run.append(dn)
-                        
-                        # no subnets allowed
-                        if len(dn_to_be_run) == 0:
-                            self._respond_plain_text(400, "No valid IP addresses requested. Specification rejected")
-                            return
+                            self._supervisor._aggregated_meas[receipt.get_token()] = [spec.get_label(), dn_to_be_run, res, receipt, requested_cap.dn_to_nets]   
+                            spec.remove_parameter("aggregate.ip4")
+                            spec.remove_result_column("subnet.ip4")
+                            spec.add_parameter("subnet.ip4")
                             
-                        self._supervisor._aggregated_meas[receipt.get_token()] = [spec.get_label(), dn_to_be_run, res, receipt, requested_cap.dn_to_nets]   
-                        spec.remove_parameter("aggregate.ip4")
-                        spec.remove_result_column("subnet.ip4")
-                        spec.add_parameter("subnet.ip4")
-                        
-                        # add a specification for every subnet requested in the aggregate spec (and allowed)
-                        for dn in dn_to_be_run:
-                            replica = copy.deepcopy(spec)
-                            for param in replica.parameter_names():
-                                if param == "subnet.ip4":
-                                    replica.set_parameter_value("subnet.ip4", requested_cap.dn_to_nets[dn])
+                            # add a specification for every subnet requested in the aggregate spec (and allowed)
+                            for dn in dn_to_be_run:
+                                replica = copy.deepcopy(spec)
+                                for param in replica.parameter_names():
+                                    if param == "subnet.ip4":
+                                        replica.set_parameter_value("subnet.ip4", requested_cap.dn_to_nets[dn])
+                                
+                                # enqueue the specification
+                                if not self._supervisor.add_spec(replica, dn):
+                                    self._respond_plain_text(503, "Specification is temporarily unavailable. Try again later")
+                                    return
                             
-                            # enqueue the specification
-                            if not self._supervisor.add_spec(replica, dn):
-                                self._respond_plain_text(503, "Specification is temporarily unavailable. Try again later")
-                                return     
-                else:
-                    # if it's a single capability
-                    probe_dn = None
-                    label = spec.get_label()
-                    if label in self._supervisor._label_to_dn:
-                        for dn in self._supervisor._label_to_dn[label]:
-                            cap_id = label + ", " + dn
-                            if self._supervisor.ac.check_azn(cap_id, self.dn):
-                                probe_dn = dn
-                    else:
-                        self._respond_plain_text(403, "This measure doesn't exist")
-                    if probe_dn is None:
-                        self._respond_plain_text(503, "Specification is unavailable. The component for the requested measure was not found")
-                        
-                    # enqueue the specification
-                    if not self._supervisor.add_spec(spec, dn):
-                        self._respond_plain_text(503, "Specification is temporarily unavailable. Try again later")
-                        return
-                        
-                # return the receipt to the client        
-                self._respond_message(receipt)
+                    # return the receipt to the client        
+                    self._respond_message(receipt)
+                    return
+            else:
+                self._respond_plain_text(400, "Invalid format")
                 return
-        else:
-            self._respond_plain_text(400, "Invalid format")        
 
 class S_ResultHandler(MPlaneHandler):
     """
@@ -446,6 +469,7 @@ class S_ResultHandler(MPlaneHandler):
         # this function can only be used by clients
         if self.dn.find("Clients") == -1:
             self._respond_plain_text(401, "Not Authorized. Only Clients can use this function")
+            return
             
         # unwrap json message from body
         if (self.request.headers["Content-Type"] == "application/x-mplane+json"):
@@ -458,6 +482,7 @@ class S_ResultHandler(MPlaneHandler):
                     # check if redemption is expected
                     if rec.get_token() not in self._supervisor._aggregated_meas:
                         self._respond_plain_text(403, "Unexpected Redemption")
+                        return
                     
                     # extract information regarding the aggregated measure requested
                     aggr_meas = self._supervisor._aggregated_meas[rec.get_token()]
@@ -531,8 +556,10 @@ class S_ResultHandler(MPlaneHandler):
                           
                     # if there is no measurement and no result corresponding to the redemption, it is unexpected
                     self._respond_plain_text(403, "Unexpected Redemption")
+                    return
             else:
                 self._respond_plain_text(400, "Invalid format")   
+                return
                    
     def clean_results(self, dn_list, label):
         """

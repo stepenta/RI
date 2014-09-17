@@ -24,10 +24,12 @@ import sys
 import cmd
 import readline
 import urllib3
+from collections import OrderedDict
 from urllib3 import HTTPSConnectionPool
 from urllib3 import HTTPConnectionPool
 import os.path
 import argparse
+import json
 
 from datetime import datetime, timedelta
 
@@ -71,7 +73,7 @@ class HttpClient(object):
         print("new client: "+self._posturl)
 
         # empty capability and measurement lists
-        self._capabilities = []
+        self._capabilities = OrderedDict()
         self._receipts = []
         self._results = []
 
@@ -87,7 +89,7 @@ class HttpClient(object):
         if postmsg is not None:
             print(postmsg)
             res = self.pool.urlopen('POST', url, 
-                    body=mplane.model.unparse_json(postmsg).encode("utf-8"), 
+                    body=postmsg.encode("utf-8"), 
                     headers={"content-type": "application/x-mplane+json"})
         else:
             res = self.pool.request('GET', url)
@@ -99,7 +101,7 @@ class HttpClient(object):
         else:
             return [res.status, res.data.decode("utf-8")]
 
-    def handle_message(self, msg):
+    def handle_message(self, msg, dn = None):
         """
         Processes a message. Caches capabilities, receipts, 
         and results, and handles Exceptions.
@@ -110,7 +112,7 @@ class HttpClient(object):
             print(mplane.model.unparse_yaml(msg))
 
             if isinstance(msg, mplane.model.Capability):
-                self.add_capability(msg)
+                self.add_capability(msg, dn)
             elif isinstance(msg, mplane.model.Receipt):
                 self.add_receipt(msg)
             elif isinstance(msg, mplane.model.Result):
@@ -122,22 +124,14 @@ class HttpClient(object):
         except:
             print("Supervisor returned: " + str(msg[0]) + " - " + msg[1])
 
-    def capabilities(self):
-        """Iterate over capabilities"""
-        yield from self._capabilities
-
-    def capability_at(self, index):
-        """Retrieve a capability at a given index"""
-        return self._capabilities[index]
-
-    def add_capability(self, cap):
+    def add_capability(self, cap, dn):
         """Add a capability to the capability cache"""
         print("adding "+repr(cap))
-        self._capabilities.append(cap)
+        mplane.utils.add_value_to(self._capabilities, dn, cap)
 
     def clear_capabilities(self):
         """Clear the capability cache"""
-        self._capabilities.clear()
+        self._capabilities = OrderedDict()
 
     def retrieve_capabilities(self):
         """
@@ -152,9 +146,13 @@ class HttpClient(object):
         print("getting capabilities from " + url)
         res = self.pool.request('GET', url)
         if res.status == 200:
-            caps = mplane.utils.split_stmt_list(res.data.decode("utf-8"))
-            for cap in caps:
-                self.handle_message(cap)
+            body = json.loads(res.data.decode("utf-8"))
+            for key in body:
+                print(key)
+                print(body[key])
+                caps = mplane.utils.split_stmt_list(json.dumps(body[key]))
+                for cap in caps:
+                    self.handle_message(cap, key)
         else:
             print("Supervisor returned: " + str(res.status) + " - " + res.data.decode("utf-8"))
        
@@ -168,7 +166,7 @@ class HttpClient(object):
             self._receipts.append(msg)
 
     def redeem_receipt(self, msg):
-        self.handle_message(self.get_mplane_reply("/"+S_RESULT_PATH, mplane.model.Redemption(receipt=msg)))
+        self.handle_message(self.get_mplane_reply("/"+S_RESULT_PATH, mplane.model.unparse_json(mplane.model.Redemption(receipt=msg))))
 
     def redeem_receipts(self):
         """
@@ -260,8 +258,11 @@ class ClientShell(cmd.Cmd):
 
     def do_listcap(self, arg):
         """List available capabilities by index"""
-        for i, cap in enumerate(self._client.capabilities()):
-            print ("%4u: %s" % (i, repr(cap)))
+        i = 1
+        for key in self._client._capabilities:
+            for cap in self._client._capabilities[key]:
+                print(str(i) + " - " + cap.get_label() + " from " + key)
+                i = i + 1
 
     def do_listmeas(self, arg):
         """List running/completed measurements by index"""
@@ -273,16 +274,24 @@ class ClientShell(cmd.Cmd):
         Show a capability given a capability index; 
         without an index, shows all capabilities
 
-        """
+        """        
         if len(arg) > 0:
-            try:
-                self._show_stmt(self._client.capability_at(int(arg.split()[0])))
-            except:
-                print("No such capability "+arg)
+            i = 1
+            for key in self._client._capabilities:
+                for cap in self._client._capabilities[key]:
+                    if str(i) == arg:
+                        self._show_stmt(cap)
+                        return
+                    i = i + 1
+            print("No such capability: " + arg)
+            
         else:
-            for i, cap in enumerate(self._client.capabilities()):
-                print ("cap %4u ---------------------------------------" % i)
-                self._show_stmt(cap)
+            i = 1
+            for key in self._client._capabilities:
+                for cap in self._client._capabilities[key]:
+                    print ("cap %4u ---------------------------------------" % i)
+                    self._show_stmt(cap)
+                    i = i + 1
 
     def do_showmeas(self, arg):
         """Show receipt/results for a measurement, given a measurement index"""
@@ -306,15 +315,33 @@ class ClientShell(cmd.Cmd):
         not yet entered.
 
         """
-        # Retrieve a capability and create a specification
-#        try:
-        cap = self._client.capability_at(int(arg.split()[0]))
-        spec = mplane.model.Specification(capability=cap)
-#        except:
-#            print ("No such capability "+arg)
-#            return
+        i = 1
+        # iterate over single capabilities
+        for key in self._client._capabilities:
+            for cap in self._client._capabilities[key]:
+                if str(i) == arg:
+                    
+                    # fill the specification
+                    spec = self.fill_spec(cap)
+                    
+                    # And send it to the server, with the correct JSON format
+                    msg = "{\"" + key + "\":" + mplane.model.unparse_json(spec) + "}"
+                    self._client.handle_message(self._client.get_mplane_reply("/"+S_SPECIFICATION_PATH, msg))
+                    print("ok")
+                    return
+                    
+                i = i + 1
+        print("No such capability: " + arg)
+            
+    def fill_spec(self, cap):
+        """
+        Fills the parameters of a specification, 
+        then validates and returns it ready to be enqueued
 
-        # Set temporal scope or prompt for new one
+        """
+        spec = mplane.model.Specification(capability=cap)
+        
+        # Set temporal scope or prompt for new one  
         while self._when is None or \
               not self._when.follows(cap.when()) or \
               (self._when.period is None and cap.when().period() is not None):
@@ -338,15 +365,11 @@ class ClientShell(cmd.Cmd):
                     sys.stdout.write("|param| "+pname+" = ")
                     spec.set_parameter_value(pname, input())
             else:
-                # FIXME we really want to unparse this
                 print("|param| "+pname+" = "+str(spec.get_parameter_value(pname)))
 
         # Validate specification
         spec.validate()
-
-        # And send it to the server
-        self._client.handle_message(self._client.get_mplane_reply("/"+S_SPECIFICATION_PATH, spec))
-        print("ok")
+        return spec
 
     def do_redeem(self, arg):
         """Attempt to redeem all outstanding receipts"""
