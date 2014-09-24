@@ -291,11 +291,11 @@ class HttpProbe():
         url = "/" + REGISTRATION_PATH
         
         # generate the capability list
-        caps_list = "["
+        caps_list = ""
         for key in self.scheduler.capability_keys():  
             cap = self.scheduler.capability_for_key(key)
             caps_list = caps_list + mplane.model.unparse_json(cap) + ","
-        caps_list = caps_list[:-1].replace("\n","") + "]"
+        caps_list = "[" + caps_list[:-1].replace("\n","") + "]"
         connected = False
         
         # send the list to the supervisor, if reachable
