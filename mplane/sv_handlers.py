@@ -166,12 +166,12 @@ class SpecificationHandler(MPlaneHandler):
         specs = self._supervisor._specifications.pop(self.dn, [])
         self.set_status(200)
         self.set_header("Content-Type", "application/x-mplane+json")
-        msg = "["
+        msg = ""
         for spec in specs:
                 msg = msg + mplane.model.unparse_json(spec) + ","
                 mplane.utils.add_value_to(self._supervisor._receipts, self.dn, mplane.model.Receipt(specification=spec))
                 mplane.utils.print_then_prompt("Specification " + spec.get_label() + " successfully pulled by " + self.dn)
-        msg = msg[:-1].replace("\n","") + "]"
+        msg = "[" + msg[:-1].replace("\n","") + "]"
         self.write(msg)
         self.finish()
         

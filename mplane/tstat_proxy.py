@@ -335,11 +335,11 @@ class HttpProbe():
         if res.status == 200:
             
             # specs retrieved: split them if there is more than one
-            specs = mplane.utils.split_stmt_list(res.data.decode("utf-8"))
+            specs = json.loads(res.data.decode("utf-8"))            
             for spec in specs:
                 
                 # hand spec to scheduler
-                reply = self.scheduler.receive_message(spec)
+                reply = self.scheduler.receive_message(mplane.model.parse_json(json.dumps(spec)))
                 job = self.scheduler.job_for_message(reply)
                 
                 # launch a thread to monitor the status of the running measurement
