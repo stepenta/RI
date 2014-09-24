@@ -21,6 +21,7 @@
 import os.path
 import re
 import mplane.model
+import json
 
 def read_setting(filepath, param):
     """
@@ -137,28 +138,8 @@ def split_stmt_list(msg):
     JSON format into a list of single statements
     
     """
+    json_stmts = json.loads(msg)
     stmts = []
-    stmt_start = 0
-    msg = msg[1:-1]
-    stmt_end = find_closed_brace(msg, stmt_start)
-    while stmt_end != -1:
-        stmts.append(mplane.model.parse_json(msg[stmt_start:stmt_end+1]))
-        stmt_start = stmt_end + 2
-        stmt_end = find_closed_brace(msg, stmt_start)
+    for json_stmt in json_stmts:
+        stmts.append(mplane.model.parse_json(json.dumps(json_stmt)))
     return stmts
-    
-def find_closed_brace(msg, stmt_start):
-    """
-    In an unparsed JSON list of statements, finds the correct 
-    closed brace that identifies the end of the statement schema 
-    (and not other closed braces within the schema)
-    
-    """
-    stmt_end = msg.find('}', stmt_start)
-    closed_braces_counter = msg[stmt_start:stmt_end+1].count("}")
-    open_braces_counter = msg[stmt_start:stmt_end].count("{")
-    while closed_braces_counter < open_braces_counter:
-        stmt_end = msg.find('}', stmt_end+1)
-        closed_braces_counter = msg[:stmt_end+1].count("}")
-        open_braces_counter = msg[:stmt_end].count("{")
-    return stmt_end
