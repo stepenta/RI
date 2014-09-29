@@ -249,16 +249,20 @@ class S_CapabilityHandler(MPlaneHandler):
         # set HTML headers
         self.set_status(200)
         self.set_header("Content-Type", "application/x-mplane+json")
-        msg = "{"
+        msg = ""
         
         # list single capabilities
         for key in self._supervisor._capabilities:
-            msg = msg + "\"" + key + "\":["
+            found = False
             for cap in self._supervisor._capabilities[key]:
                 cap_id = cap.get_label() + ", " + key
                 if self._supervisor.ac.check_azn(cap_id, self.dn):
+                    if found == False:
+                        msg = msg + "\"" + key + "\":["
+                        found = True
                     msg = msg + mplane.model.unparse_json(cap) + ","
-            msg = msg[:-1].replace("\n","") + "],"
+            if found == True:
+                msg = msg[:-1].replace("\n","") + "],"
         
         if self._supervisor._aggregate:            
             # list aggregated capabilities 
@@ -269,7 +273,8 @@ class S_CapabilityHandler(MPlaneHandler):
                     cap_id = label + ", " + dn
                     if self._supervisor.ac.check_azn(cap_id, self.dn):
                         msg = msg + mplane.model.unparse_json(self.filter_aggregated_capability(cap)) + ","            
-        msg = msg[:-1].replace("\n","") + "}"
+        msg = "{" + msg[:-1].replace("\n","") + "}"
+        print(msg)
         self.write(msg)
         self.finish()
 
