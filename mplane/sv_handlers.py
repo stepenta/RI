@@ -274,7 +274,6 @@ class S_CapabilityHandler(MPlaneHandler):
                     if self._supervisor.ac.check_azn(cap_id, self.dn):
                         msg = msg + mplane.model.unparse_json(self.filter_aggregated_capability(cap)) + ","            
         msg = "{" + msg[:-1].replace("\n","") + "}"
-        print(msg)
         self.write(msg)
         self.finish()
 
