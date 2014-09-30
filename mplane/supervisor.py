@@ -398,6 +398,11 @@ class HttpSupervisor(object):
         Add a specification to the queue. Check for already running specs, 
         and for already enqueued specs of the same type
         """
+        
+        # If unset, set token
+        if spec._token is None:
+            spec._token = spec._default_token()
+          
         if dn not in self._specifications:
             # check if a specification of the same type is already running on the probe
             if dn in self._receipts:
