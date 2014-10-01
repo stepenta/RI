@@ -268,6 +268,7 @@ ANCHOR_SEP = "#"
 
 CONSTRAINT_ALL = "*"
 VALUE_NONE = "*"
+VALUE_EMPTY = ""
 
 TIME_PAST = "past"
 TIME_NOW = "now"
@@ -923,7 +924,7 @@ class Primitive(object):
         mPlane.
 
         """
-        if sval is None or sval == VALUE_NONE:
+        if sval is None or sval == VALUE_NONE or sval == VALUE_EMPTY:
             return None
         else:
             return sval
@@ -970,7 +971,7 @@ class NaturalPrimitive(Primitive):
 
     def parse(self, sval):
         """Convert a string to a natural value."""
-        if sval is None or sval == VALUE_NONE:
+        if sval is None or sval == VALUE_NONE or sval == VALUE_EMPTY:
             return None
         else:
             # also converts values like 100.0 or 10E2
@@ -993,7 +994,7 @@ class RealPrimitive(Primitive):
 
     def parse(self, sval):
         """Convert a string to a floating point value."""
-        if sval is None or sval == VALUE_NONE:
+        if sval is None or sval == VALUE_NONE or sval == VALUE_EMPTY:
             return None
         else:
             return float(sval)
@@ -1015,7 +1016,7 @@ class BooleanPrimitive(Primitive):
     
     def parse(self, sval):
         """Convert a string to a boolean value."""
-        if sval is None or sval == VALUE_NONE:
+        if sval is None or sval == VALUE_NONE or sval == VALUE_EMPTY:
             return None
         elif sval == 'True':
             return True
@@ -1047,7 +1048,7 @@ class AddressPrimitive(Primitive):
 
     def parse(self, sval):
         """Convert a string to an address value."""
-        if sval is None or sval == VALUE_NONE:
+        if sval is None or sval == VALUE_NONE or sval == VALUE_EMPTY:
             return None
         else:
             return ip_address(sval)
