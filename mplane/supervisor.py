@@ -187,11 +187,17 @@ class HttpSupervisor(object):
         
                 # Handlers of the HTTP Server
                 (r"/" + REGISTRATION_PATH, mplane.sv_handlers.RegistrationHandler, {'supervisor': self}),
+                (r"/" + REGISTRATION_PATH + "/", mplane.sv_handlers.RegistrationHandler, {'supervisor': self}),
                 (r"/" + SPECIFICATION_PATH, mplane.sv_handlers.SpecificationHandler, {'supervisor': self}),
+                (r"/" + SPECIFICATION_PATH + "/", mplane.sv_handlers.SpecificationHandler, {'supervisor': self}),
                 (r"/" + RESULT_PATH, mplane.sv_handlers.ResultHandler, {'supervisor': self}),
+                (r"/" + RESULT_PATH + "/", mplane.sv_handlers.ResultHandler, {'supervisor': self}),
                 (r"/" + S_CAPABILITY_PATH, mplane.sv_handlers.S_CapabilityHandler, {'supervisor': self}),
+                (r"/" + S_CAPABILITY_PATH + "/", mplane.sv_handlers.S_CapabilityHandler, {'supervisor': self}),
                 (r"/" + S_SPECIFICATION_PATH, mplane.sv_handlers.S_SpecificationHandler, {'supervisor': self}),
+                (r"/" + S_SPECIFICATION_PATH + "/", mplane.sv_handlers.S_SpecificationHandler, {'supervisor': self}),
                 (r"/" + S_RESULT_PATH, mplane.sv_handlers.S_ResultHandler, {'supervisor': self}),
+                (r"/" + S_RESULT_PATH + "/", mplane.sv_handlers.S_ResultHandler, {'supervisor': self}),
             ])
             
         # check if security is enabled, if so read certificate files
