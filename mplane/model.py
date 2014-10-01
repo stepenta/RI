@@ -2338,6 +2338,7 @@ class StatementNotification(Statement):
         if dictval is None and statement is not None:
             self._verb = statement._verb
             self._when = statement._when
+            self._label = statement._label
             self._metadata = statement._metadata
             self._params = deepcopy(statement._params)
             self._resultcolumns = deepcopy(statement._resultcolumns)
