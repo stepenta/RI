@@ -345,6 +345,12 @@ class HttpProbe():
                 # launch a thread to monitor the status of the running measurement
                 t = threading.Thread(target=self.return_results, args=[job])
                 t.start()
+                
+        # not registered on supervisor, need to re-register
+        elif res.status == 428:
+            print("\nRe-registering capabilities on Supervisor")
+            self.register_to_supervisor()
+            
         pass
     
     def return_results(self, job):

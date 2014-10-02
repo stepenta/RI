@@ -236,6 +236,7 @@ class HttpSupervisor(object):
         self._aggregated_meas = dict()       # keeps track of measurements for aggregated capabilities
         self._dn_to_ip = dict()              # DN - IP associations
         self._label_to_dn = dict()           # Cap Label - DN associations
+        self._registered_dn = []
         
     def register(self, cap, dn):
         """
@@ -246,6 +247,9 @@ class HttpSupervisor(object):
         # stores the association Label - DN
         label = cap.get_label()
         mplane.utils.add_value_to(self._label_to_dn, label, dn)
+        
+        # stores the DN to keep track of registered DNs
+        self._registered_dn.append(dn)
 
         # checks if aggregation is active, if not just register capability
         # or

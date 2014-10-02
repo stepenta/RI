@@ -162,6 +162,10 @@ class SpecificationHandler(MPlaneHandler):
         if self.dn.find("Components") == -1:
             self._respond_plain_text(401, "Not Authorized. Only Components can use this function")
             return
+        
+        # check if the component is registered or not
+        if self.dn not in self._supervisor._registered_dn:
+            self._respond_plain_text(428)
             
         specs = self._supervisor._specifications.pop(self.dn, [])
         self.set_status(200)
