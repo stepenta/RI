@@ -122,7 +122,7 @@ class RegistrationHandler(MPlaneHandler):
             return
         
         # register capabilities
-        response = "{"
+        response = ""
         for new_cap in new_caps:
             if isinstance(new_cap, mplane.model.Capability):
                 found = False
@@ -138,7 +138,7 @@ class RegistrationHandler(MPlaneHandler):
                     response = response + "\"" + new_cap.get_label() + "\":{\"registered\":\"ok\"},"
             else:
                 response = response + "\"" + new_cap.get_label() + "\":{\"registered\":\"no\", \"reason\":\"Not a capability\"},"
-        response = response[:-1].replace("\n", "") + "}"
+        response = "{" + response[:-1].replace("\n", "") + "}"
         
         # reply to the component
         self._respond_json_text(200, response)
