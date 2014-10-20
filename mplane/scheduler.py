@@ -203,6 +203,7 @@ class Scheduler(object):
             job_key = msg.get_token()
             if job_key in self.jobs:
                 reply = self.jobs[job_key].get_reply()
+                self.jobs.pop(job_key, None)
             else: reply = mplane.model.Exception(token=job_key, 
                 errmsg="Unknown job")
         else:
