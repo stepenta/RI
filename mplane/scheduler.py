@@ -27,7 +27,6 @@ results within the mPlane reference component.
 from datetime import datetime, timedelta
 import threading
 import mplane.model
-#import mplane.sec
 
 class Service(object):
     """
@@ -182,15 +181,14 @@ class Scheduler(object):
     submit_job().
 
     """
-    def __init__(self): #, security):
+    def __init__(self):
         super(Scheduler, self).__init__()
         self.services = []
         self.jobs = {}
         self._capability_cache = {}
         self._capability_keys_ordered = []
-        #self.ac = mplane.sec.Authorization(security)
 
-    def receive_message(self, msg, session=None): # (self, user, msg, session=None):
+    def receive_message(self, msg, session=None):
         """
         Receive and process a message. 
         Returns a message to send in reply.
@@ -234,7 +232,7 @@ class Scheduler(object):
         """
         return self._capability_cache[key]
 
-    def submit_job(self, specification, session=None): # (self, user, specification, session=None):
+    def submit_job(self, specification, session=None):
         """
         Search the available Services for one which can 
         service the given Specification, then create and schedule 
@@ -244,7 +242,6 @@ class Scheduler(object):
         # linearly search the available services
         for service in self.services:
             if specification.fulfills(service.capability()):
-                #if self.ac.check_azn(service.capability()._label, user):
                 # Found. Create a new job.
                 print(repr(service)+" matches "+repr(specification))
                 if (specification.has_schedule()):
@@ -268,11 +265,6 @@ class Scheduler(object):
                 self.jobs[job_key] = new_job
                 print("Returning "+repr(new_job.receipt))
                 return new_job.receipt
-                    
-                # user not authorized to request the capability
-                #print("Not allowed to request this capability: " + repr(specification))
-                #return mplane.model.Exception(token=specification.get_token(),
-                #            errmsg="User has no permission to request this capability")
 
         # fall-through, no job
         print("No service for "+repr(specification))
