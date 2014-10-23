@@ -2,7 +2,7 @@ export MPLANE_DIR=$(pwd)
 export MPLANE_PKI_DIR=$MPLANE_DIR/ca
 
 echo "
-IMPORTANT: Before doing this, set the DNS name (SAN) and DN name you want for your supervisor, in etc/supervisor.conf 
+IMPORTANT: Before doing this, set the DNS name (SAN) and DN name you want for your client, in etc/client.conf 
 "
 
 echo "Enter certificate name: "
