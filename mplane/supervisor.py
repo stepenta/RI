@@ -61,17 +61,14 @@ def parse_args():
     parser.add_argument('-p', '--listen-port', metavar='port', dest='LISTEN_PORT', default=DEFAULT_LISTEN_PORT, type=int, \
                         help = 'run the service on the specified port [default=%d]' % DEFAULT_LISTEN_PORT)
     parser.add_argument('-s', '--listen-ipaddr', metavar='ip', dest='LISTEN_IP4', default=DEFAULT_LISTEN_IP4, \
-                        help = 'run the service on the specified IP address [default=%s]' % DEFAULT_LISTEN_IP4)
-    parser.add_argument('--enable-aggr', action='store_true', default=False, dest='ENABLE_AGGR',
-                        help='Enable aggregation of capabilities (experimental, probably has compatibility issues)')
-                        
-    parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
-                        help='Disable secure communication')
+                        help = 'run the service on the specified IP address [default=%s]' % DEFAULT_LISTEN_IP4)                        
+    parser.add_argument('--disable-ssl', action='store_true', default=False, dest='DISABLE_SSL',
+                        help='Disable ssl communication')
     parser.add_argument('-c', '--certfile', metavar="path", default=None, dest='CERTFILE',
                         help="Location of the configuration file for certificates")
     args = parser.parse_args()
 
-    if args.DISABLE_SEC == False and not args.CERTFILE:
+    if args.DISABLE_SSL == False and not args.CERTFILE:
         print('\nerror: missing -c|--certfile option\n')
         parser.print_help()
         sys.exit(1)
@@ -82,91 +79,6 @@ def listen_in_background():
     the supervisor console remains accessible
     """
     tornado.ioloop.IOLoop.instance().start()
-
-def get_net_info(cap):
-    """
-    Retrieve the subnet mask and IP from the parameters in 
-    the capability, if any. Otherwise, returns None
-    """
-    params = [v._as_tuple() for v in cap._params.values()]
-    subnet_ip4 = None
-    subnet_mask = None
-    for param in params:
-        if param[0] == 'subnet.ip4':
-            subnet_ip4 = param[1]
-        elif param[0] == 'subnet.netmask':
-            subnet_mask = int(param[1])
-    if (subnet_ip4 is None or subnet_mask is None):
-        return None
-    else:
-        return [subnet_ip4, subnet_mask]
-        
-class AggregatedCapability(object):
-    """
-    An AggregatedCapability contains informations about the
-    single capabilities by which is composed, such as DN-subnet associations,
-    interval of subnets covered by the aggregation, netmask, list of probes
-    (identified by DN) involved in the Capability.
-    The original schema of the single capability is slightly modified, 
-    substituting the "subnet.ip4" parameter with "aggregate.ip4", which contains
-    the range (or the list) of subnets covered
-    
-    IMPORTANT:
-    ONLY CAPABILITIES WITH THE PARAMETERS "subnet.ip4" AND "subnet.mask" CAN BE AGGREGATED
-    """
-    
-    def __init__(self, cap, dn_list, interval, netmask, dn_to_nets):
-        self.dn_list = dn_list
-        self.dn_to_nets = dn_to_nets
-        self.net_interval = interval
-        self.netmask = netmask
-        
-        cap.remove_parameter("subnet.ip4")
-        cap.add_parameter("aggregate.ip4", interval[0] + " ... " + interval[1])
-        self.schema = cap
-        
-    def aggregate_cap(self, dn, ip4, mask):
-        """
-        Checks if the subnet covered by the new capability is adjacent
-        to the current interval. If so, adds the capability to the aggregate,
-        and updates the subnets interval
-        """
-        self.dn_list.append(dn)
-        self.dn_to_nets[dn] = ip4
-        if mplane.utils.get_distance(self.net_interval[0], self.netmask, ip4, mask) == -1:
-            self.net_interval[0] = ip4
-        elif mplane.utils.get_distance(self.net_interval[1], self.netmask, ip4, mask) == 1:
-            self.net_interval[1] = ip4
-        else:
-            print("Error: new capability should be adjacent, but is not!")
-        self.schema.remove_parameter("aggregate.ip4")
-        self.schema.add_parameter("aggregate.ip4", self.net_interval[0] + " ... " + self.net_interval[1])
-            
-    def further_aggregate(self, aggr_cap):
-        """
-        Checks if another aggregated capability is adjacent to this one. If so,
-        merges the two capabilities updating the subnets interval
-        """
-        self.dn_list.append(aggr_cap.dn_list)
-        if mplane.utils.get_distance(self.net_interval[0], self.netmask, aggr_cap.net_interval[1], aggr_cap.netmask) == -1:
-            self.net_interval[0] = aggr_cap.net_interval[0]
-        elif mplane.utils.get_distance(self.net_interval[1], self.netmask, aggr_cap.net_interval[0], aggr_cap.netmask) == 1:
-            self.net_interval[1] = aggr_cap.net_interval[1]
-        self.schema.remove_parameter("aggregate.ip4")
-        self.schema.add_parameter("aggregate.ip4", self.net_interval[0] + " ... " + self.net_interval[1])
-
-    def is_adjacent(self, other_ip4, other_mask):
-        """
-        Checks if a subnet is adjacent to the current interval
-        """
-        if self.netmask == other_mask:
-            if (math.fabs(mplane.utils.get_distance(self.net_interval[0], self.netmask, other_ip4, other_mask)) == 1 or
-                math.fabs(mplane.utils.get_distance(self.net_interval[1], self.netmask, other_ip4, other_mask)) == 1):
-                return True
-            else:
-                return False
-        else:
-            return False
 
 class HttpSupervisor(object):
     """
@@ -201,7 +113,7 @@ class HttpSupervisor(object):
             ])
             
         # check if security is enabled, if so read certificate files
-        self._sec = not args.DISABLE_SEC   
+        self._sec = not args.DISABLE_SSL   
         if self._sec == True:
             self.ac = mplane.sec.Authorization(self._sec)
             self.base_url = "https://" + args.LISTEN_IP4 + ":" + str(args.LISTEN_PORT) + "/"
@@ -224,24 +136,19 @@ class HttpSupervisor(object):
         t.start()
 
         print("new Supervisor: "+str(args.LISTEN_IP4)+":"+str(args.LISTEN_PORT))
-
-        self._aggregate = args.ENABLE_AGGR        
+   
         # structures for storing Capabilities, Specifications and Results
-        self._capabilities = OrderedDict()   # non-aggregated capabilities
-        self._aggregated_caps = []           # aggregated capabilities
-        self._single_in_aggr = OrderedDict() # single capabilities that compose the aggregated ones
+        self._capabilities = OrderedDict()
         self._specifications = OrderedDict()
         self._receipts = OrderedDict()
         self._results = OrderedDict()
-        self._aggregated_meas = dict()       # keeps track of measurements for aggregated capabilities
         self._dn_to_ip = dict()              # DN - IP associations
         self._label_to_dn = dict()           # Cap Label - DN associations
         self._registered_dn = []
         
     def register(self, cap, dn):
         """
-        Given a new capability, this function performs aggregation
-        when possible, and stores the new information in the corresponding structures
+        This function stores the new capability in the corresponding structures
         """
         
         # stores the association Label - DN
@@ -251,138 +158,10 @@ class HttpSupervisor(object):
         # stores the DN to keep track of registered DNs
         self._registered_dn.append(dn)
 
-        # checks if aggregation is active, if not just register capability
-        # or
-        # if there are no "subnet.ip" and "subnet.mask" parameters
-        # in the capability, it cannot be aggregated
-        if (self._aggregate == False or
-            (subnet_ip4 == -1 and subnet_mask == -1)):
-            mplane.utils.add_value_to(self._capabilities, dn, cap)
-            return
-        
-        # retrieves information on subnet address and netmask
-        net_info = get_net_info(cap)
-        if net_info is not None:
-            subnet_ip4 = net_info[0]
-            subnet_mask = net_info[1]
-        else:
-            subnet_ip4 = -1
-            subnet_mask = -1
-                
-        # here starts the aggregation process
-        aggregation_success = False
-        
-        # first, try to aggregate to already aggregated capabilities
-        for aggr_cap in self._aggregated_caps:
-            if (aggr_cap.is_adjacent(subnet_ip4, subnet_mask) and aggr_cap.schema.get_label() == cap.get_label()):
-                aggr_cap.aggregate_cap(dn, subnet_ip4, subnet_mask)
-                mplane.utils.add_value_to(self._single_in_aggr, dn, cap)
-                
-                # if aggregation is successful, we need to recheck
-                # previously non-adjacent single and aggregated caps,
-                # and eventually aggregate them
-                self.check_single_caps(aggr_cap)
-                self.check_aggregated_caps(aggr_cap)
-                aggregation_success = True
-                break
+        # register capability
+        mplane.utils.add_value_to(self._capabilities, dn, cap)
+        return
             
-        # then, try to aggregate to single capabilities
-        if aggregation_success is False:
-            for check_dn in self._capabilities:
-                for single_cap in self._capabilities[check_dn]:
-                    
-                    # check if capabilities have the needed parameters,
-                    # and if they are of the same type
-                    if single_cap.get_label() == cap.get_label():
-                        net_info = get_net_info(single_cap)
-                        if net_info is not None:
-                            check_ip4 = net_info[0]
-                            check_mask = net_info[1]
-                        else:
-                            break
-                        dn_to_nets = dict()
-                        dn_to_nets[dn] = subnet_ip4
-                        dn_to_nets[check_dn] = check_ip4
-                        
-                        # check if the capabilities are adjacent, if so aggregate
-                        if mplane.utils.get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == 1:
-                            new_aggr = AggregatedCapability(cap, [dn, check_dn], [subnet_ip4, check_ip4], subnet_mask, dn_to_nets)
-                            aggregation_success = True
-                        elif mplane.utils.get_distance(subnet_ip4, subnet_mask, check_ip4, check_mask) == -1:
-                            new_aggr = AggregatedCapability(cap, [dn, check_dn], [check_ip4, subnet_ip4], subnet_mask, dn_to_nets)
-                            aggregation_success = True
-                            
-                        # update information in the corresponding structures
-                        if aggregation_success is True:
-                            self._aggregated_caps.append(new_aggr)
-                            mplane.utils.add_value_to(self._single_in_aggr, check_dn, single_cap)
-                            mplane.utils.add_value_to(self._single_in_aggr, dn, cap)
-                            self._capabilities[check_dn].remove(single_cap)
-                            break
-                        
-                # for newly generated aggregated caps, check if previously 
-                # non-adjacent caps are now aggregable
-                if aggregation_success is True:
-                    self.check_single_caps(new_aggr)
-                    self.check_aggregated_caps(new_aggr)
-                    break
-        
-        # aggregation failed, store capability among the non-aggregated ones
-        if aggregation_success is False:
-            mplane.utils.add_value_to(self._capabilities, dn, cap)
-
-    def check_single_caps(self, aggr_cap):
-        """
-        Checks if the aggregated capability is adjacent to one or more
-        single capabilities already in cache. If so, aggregates them
-        """
-        to_be_removed = []
-        
-        for dn in self._capabilities:
-            for cap in self._capabilities[dn]:
-                if cap.get_label() == aggr_cap.schema.get_label():
-                    
-                    # get info about subnet and netmask of single cap, if any
-                    net_info = get_net_info(cap)
-                    if net_info is not None:
-                        ip4 = net_info[0]
-                        mask = net_info[1]
-                    else:
-                        break
-                    
-                    # try to aggregate
-                    if aggr_cap.is_adjacent(ip4, mask):
-                        aggr_cap.aggregate_cap(dn, ip4, mask)
-                        to_be_removed.append([dn, cap])
-                        
-        # if aggregation was successful, update the
-        # info in the corresponding structures
-        for dn, cap in to_be_removed:
-            mplane.utils.add_value_to(self._single_in_aggr, dn, cap)
-            self._capabilities[dn].remove(cap)
-    
-    def check_aggregated_caps(self, aggr_cap):
-        """
-        Checks if the aggregated capability is adjacent to one or more
-        aggregated capabilities already in cache. If so, aggregates them
-        """
-        to_be_removed = []
-        for cap in self._aggregated_caps:
-            if (cap.schema.get_label() == aggr_cap.schema.get_label() and 
-                cap.net_interval[0] != aggr_cap.net_interval[0]):
-                    
-                # try to aggregate
-                if aggr_cap.is_adjacent(cap.net_interval[0], cap.netmask):
-                    aggr_cap.further_aggregate(cap)
-                    to_be_removed.append(cap)
-                elif aggr_cap.is_adjacent(cap.net_interval[1], cap.netmask):
-                    aggr_cap.further_aggregate(cap)
-                    to_be_removed.append(cap)
-                    
-        # update info in structures
-        for cap in to_be_removed:
-            self._aggregated_caps.remove(cap)
-    
     def add_result(self, msg, dn):
         """Add a result. Check for duplicates and if result is expected."""
         if dn in self._receipts:
@@ -430,12 +209,6 @@ class HttpSupervisor(object):
                     return False
             self._specifications[dn].append(spec)
             return True
-            
-    def dn_from_ip(self, ip):
-        """Return the DN of a component, given its IP"""
-        for dn in self._dn_to_ip:
-            if ip == self._dn_to_ip[dn]:
-                return dn
 
     def measurements(self):
         """Return a list of all the ongoing measurements (specifications, receipts and results)"""
@@ -482,14 +255,8 @@ class SupervisorShell(cmd.Cmd):
         i = 1
         for key in self._supervisor._capabilities:
             for cap in self._supervisor._capabilities[key]:
-                print(str(i) + " - " + cap.get_label() + " from " + self._supervisor._dn_to_ip[key])
+                print(str(i) + " - " + cap.get_label() + " fsdfswfdrom " + self._supervisor._dn_to_ip[key])
                 i = i + 1
-                
-        for cap in self._supervisor._aggregated_caps:
-            print(str(i) + " - " + cap.schema.get_label() + " from:")
-            for dn in cap.dn_list:
-                print("        " + self._supervisor._dn_to_ip[dn])
-            i = i + 1
 
     def do_showcap(self, arg):
         """
@@ -505,34 +272,13 @@ class SupervisorShell(cmd.Cmd):
                         self._show_stmt(cap)
                         return
                     i = i + 1
-            for cap in self._supervisor._aggregated_caps:
-                if str(i) == arg:
-                    self._show_stmt(cap.schema)
-                    ips = ""
-                    for dn in cap.dn_list:
-                        if ips == "":
-                            ips = self._supervisor._dn_to_ip[dn]
-                        else:
-                            ips = ips + ", " + self._supervisor._dn_to_ip[dn]
-                    print("from: " + ips + "\n")
-                    return
-                i = i + 1
             print("No such capability: " + arg)
             
         else:
             for key in self._supervisor._capabilities:
                 for cap in self._supervisor._capabilities[key]:
                     self._show_stmt(cap)
-            for cap in self._supervisor._aggregated_caps:
-                self._show_stmt(cap.schema)
-                ips = ""
-                for dn in cap.dn_list:
-                    if ips == "":
-                        ips = self._supervisor._dn_to_ip[dn]
-                    else:
-                        ips = ips + ", " + self._supervisor._dn_to_ip[dn]
-                print("from: " + ips + "\n")
-
+            
     def do_listmeas(self, arg):
         """List enqueued/running/completed measurements by index"""
         i = 1
@@ -545,7 +291,6 @@ class SupervisorShell(cmd.Cmd):
     def do_showmeas(self, arg):
         """
         Show specification/receipt/results for a measurement, given a measurement index.
-        For aggregated measurements, shows separated results
         """
         meas = self._supervisor.measurements()
         if len(arg) > 0:
@@ -573,7 +318,7 @@ class SupervisorShell(cmd.Cmd):
 
         """
         i = 1
-        # iterate over single capabilities
+        # iterate over capabilities
         for key in self._supervisor._capabilities:
             for cap in self._supervisor._capabilities[key]:
                 if str(i) == arg:
@@ -585,64 +330,6 @@ class SupervisorShell(cmd.Cmd):
                     return
                 i = i + 1
         
-        # iterate over aggregate capabilities
-        for cap in self._supervisor._aggregated_caps:
-            if str(i) == arg:
-                spec = self.fill_spec(cap.schema)
-
-                subnets = spec.get_parameter_value("aggregate.ip4")
-                dn_to_be_run = []
-                if subnets.find(" ... ") >= 0:
-                    # requested a measure for a RANGE of subnets
-                    net_range = subnets.split(" ... ")
-                    if not mplane.utils.check_ip_format(net_range):
-                        mplane.utils.print_then_prompt("Invalid format for one or more net addresses")
-                        return
-                    for dn in cap.dn_list:
-                        # creating the list of probes included in the range of subnets requested
-                        mask = cap.netmask
-                        if (mplane.utils.get_distance(net_range[0], mask, cap.dn_to_nets[dn], mask) >= 0 and
-                            mplane.utils.get_distance(net_range[1], mask, cap.dn_to_nets[dn], mask) <= 0):
-                            dn_to_be_run.append(dn)
-                elif subnets.find(",") >= 0:
-                    # requested a measure for a SET of subnets
-                    net_list = subnets.split(",")
-                    if not mplane.utils.check_ip_format(net_list):
-                        mplane.utils.print_then_prompt("Invalid format for one or more net addresses")
-                        return
-                    for net in net_list:
-                        # creating the list of probes included in the set of subnets requested
-                        for dn in cap.dn_list:
-                            if net == cap.dn_to_nets[dn]:
-                                dn_to_be_run.append(dn)
-                else:
-                    #only one subnet requested
-                    net = subnets
-                    if not mplane.utils.check_ip_format(net):
-                        mplane.utils.print_then_prompt("Invalid format for one or more net addresses" + net)
-                        return
-                    for dn in cap.dn_list:
-                        if net == cap.dn_to_nets[dn]:
-                            dn_to_be_run.append(dn)
-                    
-                if len(dn_to_be_run) == 0:
-                    mplane.utils.print_then_prompt("No valid IP addresses requested. Specification rejected")
-                    return
-                      
-                spec.remove_parameter("aggregate.ip4")
-                spec.add_parameter("subnet.ip4")
-                for dn in dn_to_be_run:
-                    
-                    # add a specification for every subnet requested in the aggregate spec
-                    for param in spec.parameter_names():
-                        if param == "subnet.ip4":
-                            spec.set_parameter_value("subnet.ip4", cap.dn_to_nets[dn])
-                    spec.validate()
-                    if not self._supervisor.add_spec(spec, dn):
-                        mplane.utils.print_then_prompt("Specification is temporarily unavailable. Try again later")
-                        return
-                return
-            i = i + 1
         print("No such capability: " + arg)
             
     def fill_spec(self, cap):
