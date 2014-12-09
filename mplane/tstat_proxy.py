@@ -279,6 +279,9 @@ class HttpProbe():
         else: 
             self.pool = HTTPConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT)
         
+        # get server DN, for Access Control purposes
+        self.dn = self.get_dn()
+        
         # generate a Service for each capability
         self.immediate_ms = immediate_ms
         self.scheduler = mplane.scheduler.Scheduler(self.security, self.cert)
@@ -301,7 +304,7 @@ class HttpProbe():
             # thus ssl library is being used
             s = socket()
             c = ssl.wrap_socket(s,cert_reqs=ssl.CERT_REQUIRED, keyfile=self.key, certfile=self.cert, ca_certs=self.ca)
-            c.connect(('127.0.0.1', 8888))
+            c.connect((args.SUPERVISOR_IP4, args.SUPERVISOR_PORT))
             cert = c.getpeercert()
             
             dn = ""
@@ -338,8 +341,6 @@ class HttpProbe():
                     headers={"content-type": "application/x-mplane+json"})
                 connected = True
                 
-                # get server and probe DN, for Access Control purposes
-                self.dn = self.get_dn()
             except:
                 print("Supervisor unreachable. Retrying connection in 5 seconds")
                 sleep(5)
