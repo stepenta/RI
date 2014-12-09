@@ -23,11 +23,38 @@ import os.path
 
 class Authorization(object):
 
-    def __init__(self, security):
+    def __init__(self, security, cert_file=None):
         self.security = security
+        
+        # The probe DN is needed only at component-side,
+        # to check if a capability can be exposed or not.
+        # If a Supervisor uses this functions, it doesn't
+        # need its own DN, since the access control is based
+        # on the DN of the components (and on the capability label)
+        if (cert_file is not None):
+            self.probe_dn = self.get_probe_dn(cert_file)
+        else:
+            self.probe_dn = None
+            
         if self.security == True:
             self.ur = self.load_roles("users.conf")
             self.cr = self.load_roles("caps.conf")
+
+    def get_probe_dn(self, cert_file):
+        """ get the DN of this probe, needed in the Authorization  phase """
+        
+        probe_dn = ""
+        with open(cert_file) as f:
+            for line in f.readlines():
+                line = line.rstrip().replace(" ", "")
+                if line.startswith("Subject:"):
+                    fields = line[8:].split(",")
+                    for field in fields:
+                        if probe_dn == "":
+                            probe_dn = probe_dn + field.split('=')[1]
+                        else: 
+                            probe_dn = probe_dn + "." + field.split('=')[1]
+        return probe_dn
     		
     def load_roles(self, filename):
         """ Loads user-role-capability associations and keeps them in cache """
@@ -51,8 +78,18 @@ class Authorization(object):
                     r[user] = roles
         return r
     
-    def check_azn(self, cap_dn, user_name):
+    def check_azn(self, cap, user_name):
         """ Checks if the user is allowed to use a given capability """
+        
+        # If a supervisor uses this function, it needs to pass
+        # the 'cap' parameter in the form "label, component_DN".
+        # Otherwise, if is a component, it needs to pass only
+        # the capability label in 'cap'
+        if cap.find(', ') == -1:
+            cap_dn = cap + ", " + self.probe_dn
+        else:
+            cap_dn = cap
+        
         if self.security == True:
             if ((cap_dn in self.cr) and (user_name in self.ur)): # Deny unless explicitly allowed in .conf files
                 intersection = self.cr[cap_dn] & self.ur[user_name]

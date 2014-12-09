@@ -27,6 +27,8 @@ import mplane.utils
 import mplane.tstat_caps
 from urllib3 import HTTPSConnectionPool
 from urllib3 import HTTPConnectionPool
+from socket import socket
+import ssl
 import argparse
 import sys
 import re
@@ -197,7 +199,7 @@ def parse_args():
                         help='Supervisor IP address')
     parser.add_argument('-p', '--supervisor-port', metavar='supervisor-port', default=DEFAULT_SUPERVISOR_PORT, dest='SUPERVISOR_PORT',
                         help='Supervisor port number')
-    parser.add_argument('--disable-sec', action='store_true', default=False, dest='DISABLE_SEC',
+    parser.add_argument('--disable-ssl', action='store_true', default=False, dest='DISABLE_SSL',
                         help='Disable secure communication')
     parser.add_argument('-c', '--certfile', metavar="path", dest='CERTFILE', default = None,
                         help="Location of the configuration file for certificates")
@@ -245,11 +247,13 @@ def parse_args():
     # check if the file containing the paths for the 
     # certificates has been inserted in the command line
     # (only if security is enabled)
-    if args.DISABLE_SEC == False and not args.CERTFILE:
+    if args.DISABLE_SSL == False and not args.CERTFILE:
         print('\nERROR: missing -C|--certfile\n')
         parser.print_help()
         sys.exit(1)
+        
 
+    
 class HttpProbe():
     """
     This class manages interactions with the supervisor:
@@ -259,30 +263,57 @@ class HttpProbe():
     
     def __init__(self, immediate_ms = 5000):
         parse_args()
+        self.dn = None
         
         # check if security is enabled, if so read certificate files
-        security = not args.DISABLE_SEC
-        if security:
+        self.security = not args.DISABLE_SSL
+        if self.security:
             mplane.utils.check_file(args.CERTFILE)
-            cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
-            key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
-            ca = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "ca-chain"))
-            mplane.utils.check_file(cert)
-            mplane.utils.check_file(key)
-            mplane.utils.check_file(ca)
-            self.pool = HTTPSConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT, key_file=key, cert_file=cert, ca_certs=ca)
+            self.cert = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "cert"))
+            self.key = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "key"))
+            self.ca = mplane.utils.normalize_path(mplane.utils.read_setting(args.CERTFILE, "ca-chain"))
+            mplane.utils.check_file(self.cert)
+            mplane.utils.check_file(self.key)
+            mplane.utils.check_file(self.ca)
+            self.pool = HTTPSConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT, key_file=self.key, cert_file=self.cert, ca_certs=self.ca)
         else: 
             self.pool = HTTPConnectionPool(args.SUPERVISOR_IP4, args.SUPERVISOR_PORT)
-         
+        
         # generate a Service for each capability
         self.immediate_ms = immediate_ms
-        self.scheduler = mplane.scheduler.Scheduler()
+        self.scheduler = mplane.scheduler.Scheduler(self.security, self.cert)
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.e2e_tcp_flows_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_options_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_p2p_stats_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
         self.scheduler.add_service(tStatService(mplane.tstat_caps.tcp_layer7_capability(args.IP4_NET), args.TSTAT_RUNTIMECONF))
-          
+        
+    def get_dn(self):
+        """
+        Extracts the DN from the server. 
+        If SSL is disabled, returns a dummy DN
+        
+        """
+        if self.security == True:
+            
+            # extract DN from server certificate.
+            # Unfortunately, there seems to be no way to do this using urllib3,
+            # thus ssl library is being used
+            s = socket()
+            c = ssl.wrap_socket(s,cert_reqs=ssl.CERT_REQUIRED, keyfile=self.key, certfile=self.cert, ca_certs=self.ca)
+            c.connect(('127.0.0.1', 8888))
+            cert = c.getpeercert()
+            
+            dn = ""
+            for elem in cert.get('subject'):
+                if dn == "":
+                    dn = dn + str(elem[0][1])
+                else: 
+                    dn = dn + "." + str(elem[0][1])
+        else:
+            dn = "org.mplane.Test PKI.Test Clients.mPlane-Client"
+        return dn
+     
     def register_to_supervisor(self):
         """
         Sends a list of capabilities to the Supervisor, in order to register them
@@ -292,9 +323,10 @@ class HttpProbe():
         
         # generate the capability list
         caps_list = ""
-        for key in self.scheduler.capability_keys():  
+        for key in self.scheduler.capability_keys():
             cap = self.scheduler.capability_for_key(key)
-            caps_list = caps_list + mplane.model.unparse_json(cap) + ","
+            if (self.scheduler.ac.check_azn(cap._label, self.dn)):
+                caps_list = caps_list + mplane.model.unparse_json(cap) + ","
         caps_list = "[" + caps_list[:-1].replace("\n","") + "]"
         connected = False
         
@@ -305,6 +337,9 @@ class HttpProbe():
                     body=caps_list.encode("utf-8"), 
                     headers={"content-type": "application/x-mplane+json"})
                 connected = True
+                
+                # get server and probe DN, for Access Control purposes
+                self.dn = self.get_dn()
             except:
                 print("Supervisor unreachable. Retrying connection in 5 seconds")
                 sleep(5)
@@ -339,7 +374,18 @@ class HttpProbe():
             for spec in specs:
                 
                 # hand spec to scheduler
-                reply = self.scheduler.receive_message(spec)
+                reply = self.scheduler.receive_message(self.dn, spec)
+                
+                # return error if spec is not authorized
+                if isinstance(reply, mplane.model.Exception):
+                    result_url = "/" + RESULT_PATH
+                    # send result to the Supervisor
+                    res = self.pool.urlopen('POST', result_url, 
+                            body=mplane.model.unparse_json(reply).encode("utf-8"), 
+                            headers={"content-type": "application/x-mplane+json"})
+                    return
+                
+                # enqueue job
                 job = self.scheduler.job_for_message(reply)
                 
                 # launch a thread to monitor the status of the running measurement
@@ -350,7 +396,6 @@ class HttpProbe():
         elif res.status == 428:
             print("\nRe-registering capabilities on Supervisor")
             self.register_to_supervisor()
-            
         pass
     
     def return_results(self, job):
