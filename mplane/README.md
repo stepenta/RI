@@ -1,6 +1,6 @@
 ## Supervisor Implementation and Component-Initiated workflow
 
-### Small description
+### Description
 
 This branch has been forked on 9 Dec 2014 from `develop`, in order to merge back [this implementation](https://github.com/stepenta/RI) into the RI.
 The two main changes from the original RI are the implementation of the Component-Initiated workflow (capabilty push, specification pull), and the addition of the Supervisor (for CI workflows).
@@ -26,8 +26,7 @@ You will need the root-ca passphrase to generate certificates: send me a mail at
 
 To run the CI components (with SSL), from the protocol-ri directory, run:
 ```export MPLANE_CONF_DIR=./conf
-python3 -m mplane.supervisor -c ./conf/supervisor-certs.conf
-```
+python3 -m mplane.supervisor -c ./conf/supervisor-certs.conf```
 This will launch the supervisor. Then:
 ```python3 -m mplane.tstat_proxy -T ./conf/runtime.conf -c ./conf/CI-component-certs.conf```
 At this point, the tstat proxy will automatically register its capabilities to the Supervisor. Now launch the client:
@@ -44,7 +43,5 @@ While executing these operations, the supervisor and the probe will print some s
 The commands to run the SI workflow setup are:
 ```export MPLANE_CONF_DIR=./conf
 python3 -m mplane.ping --ip4addr 127.0.0.1 --ssl 0 --certfile ./conf/SI-component-certs.conf
-python3 -m mplane.client-RI --tlsconfig ./conf/SI-client-certs.conf
-```
+python3 -m mplane.client-RI --tlsconfig ./conf/SI-client-certs.conf```
 and then the same shell commands as above.
-```
