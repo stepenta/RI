@@ -38,10 +38,12 @@ At this point, the tstat proxy will automatically register its capabilities to t
 ```python3 -m mplane.client -c ./conf/CI-client-certs.conf```
 
 From now on, the commands are the same from the original RI, so from the client:
+
 1. ```connect``` the client Connects to the Supervisor and receives the capabilities of the probes registered to it
 2. ```listcap``` will show capablities available
-4. ```runcap <number>``` runs a capability by number in the ```listcap``` list. Any parameters not yet filled in by ```set``` will be prompted for.
-5. ```redeem``` sends all pending receipts back to the component for results, if available.
+3. ```runcap <number>``` runs a capability by number in the ```listcap``` list. Any parameters not yet filled in by ```set``` will be prompted for.
+4. ```redeem``` sends all pending receipts back to the component for results, if available.
+
 While executing these operations, the supervisor and the probe will print some status udate messages, related to the comminucations going on.
 (the Supervisor provides the same shell of the client, from which it is possible to launch capabilities and see results. This should be out of the mPlane scope, and is only for debug purposes)
 
